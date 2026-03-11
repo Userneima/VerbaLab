@@ -1,0 +1,8 @@
+## Supabase local/dev config for this repo.
+## Used by Supabase CLI when deploying Edge Functions.
+
+[functions.make-server-1fc434d6]
+# We authenticate inside the function via `supabaseAdmin.auth.getUser(token)`.
+# Disabling the gateway JWT verification avoids false 401 Invalid JWT at the edge.
+verify_jwt = false
+

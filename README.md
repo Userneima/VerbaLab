@@ -1,0 +1,32 @@
+
+  # 核心动词学习系统
+
+  This is a code bundle for 核心动词学习系统. The original project is available at https://www.figma.com/design/nb1koBsEHzrPo4tDldNBpY/%E6%A0%B8%E5%BF%83%E5%8A%A8%E8%AF%8D%E5%AD%A6%E4%B9%A0%E7%B3%BB%E7%BB%9F.
+
+  ## Running the code
+
+  Run `npm i` to install the dependencies.
+
+  Run `npm run dev` to start the development server.
+
+### 一键启动脚本
+
+项目根目录下提供了一个 `open-elis.ps1` 脚本，用于在 Windows 桌面上创建“单击即打开”的快捷方式。它会：
+
+1. 读取 `.env` 中的配置（如端口、APP_URL、NODE_ENV）并设置环境变量。
+2. 如果没有运行中的服务器则执行 `npm run start`（会根据 `NODE_ENV` 选择开发或预览模式）。
+3. 最后在默认浏览器中打开相应的 URL。
+
+脚本路径可拷贝到桌面，并在桌面上新建快捷方式指向该脚本，或者直接右键“发送到 -> 桌面快捷方式”。
+
+脚本会在第一次运行时自动在当前用户桌面生成名为 “核心动词学习系统.lnk” 的快捷方式，无需额外参数。如果你想手动重建或在其他用户下创建，可以运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File open-elis.ps1 -InstallShortcut
+```
+
+快捷方式指向脚本本身，双击即可启动服务并打开应用。
+
+
+（`.env.example` 文件提供默认值，复制为 `.env` 并根据需要修改即可。）
+  
