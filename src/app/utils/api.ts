@@ -171,6 +171,28 @@ export async function aiGrammarCheck(sentence: string, collocation: string): Pro
   return resp.json();
 }
 
+/** 实验室：语法未通过后的追问，用中文讲解语法点（不代改原句） */
+export async function aiGrammarTutor(payload: {
+  sentence: string;
+  collocation: string;
+  chineseContext: string;
+  errors: Array<{ description: string; hint: string; grammarPoint: string }>;
+  overallHint: string;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+}): Promise<{ reply: string }> {
+  const resp = await fetch(`${BASE_URL}/ai/grammar-tutor`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    console.error('AI grammar tutor error:', err);
+    throw new Error(err.error || 'Grammar tutor failed');
+  }
+  return resp.json();
+}
+
 /** 检测语法正确但为中式英语的句子，返回母语者版本与思路 */
 export async function aiChinglishCheck(sentence: string, collocation: string): Promise<{
   isChinglish: boolean;

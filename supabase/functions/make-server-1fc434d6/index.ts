@@ -247,6 +247,60 @@ app.post("/make-server-1fc434d6/ai/grammar-check", async (c) => {
   }
 });
 
+// Lab: follow-up Q&A about grammar points (after grammar check failed)
+app.post("/make-server-1fc434d6/ai/grammar-tutor", async (c) => {
+  try {
+    const body = await c.req.json();
+    const sentence = String(body.sentence || "").trim();
+    const collocation = String(body.collocation || "").trim();
+    const chineseContext = String(body.chineseContext || "").trim();
+    const overallHint = String(body.overallHint || "").trim();
+    const errors = Array.isArray(body.errors) ? body.errors : [];
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+
+    if (!sentence || !collocation) {
+      return c.json({ error: "sentence and collocation are required" }, 400);
+    }
+
+    const errLines = errors.length
+      ? errors.map((e: any, i: number) =>
+        `${i + 1}. [${e.grammarPoint || "语法"}] ${e.description || ""}\n   提示：${e.hint || ""}`
+      ).join("\n")
+      : "(本次为中式表达或其它反馈，无分项语法条目)";
+
+    const systemPrompt =
+      "你是面向中国英语学习者的语法与表达助教，用中文回答。\n\n" +
+      "【当前练习上下文】\n" +
+      "题目语境（中文）：" + (chineseContext || "（未提供）") + "\n" +
+      "目标搭配：" + collocation + "\n" +
+      "学习者写的英文：\"" + sentence + "\"\n\n" +
+      "【系统已给出的诊断】\n" + errLines + "\n" +
+      (overallHint ? "总提示：" + overallHint + "\n" : "") +
+      "\n规则：\n" +
+      "- 学习者会追问语法概念、用法区别、为什么错等，请讲清楚，可举与上文不同的新例句帮助理解。\n" +
+      "- 不要直接给出「把上面那句改对」的完整答案，也不要逐词复述其错误句子的「标准版」；引导学习者自己改。\n" +
+      "- 回答简洁有条理，必要时用小标题或分点。\n";
+
+    const validMsgs = messages.filter((m: any) =>
+      m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string"
+    ).slice(-20);
+
+    const result = await callDeepSeek(
+      [{ role: "system", content: systemPrompt }, ...validMsgs],
+      0.4,
+    );
+
+    const reply = (result || "").trim();
+    if (!reply) {
+      return c.json({ error: "Empty tutor response" }, 500);
+    }
+    return c.json({ reply });
+  } catch (err) {
+    console.log(`Error in grammar tutor: ${err}`);
+    return c.json({ error: `Grammar tutor failed: ${err}` }, 500);
+  }
+});
+
 // Stuck suggestion for Field
 app.post("/make-server-1fc434d6/ai/stuck-suggest", async (c) => {
   try {

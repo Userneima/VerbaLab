@@ -1,4 +1,5 @@
 node_modules
+scripts/.verbdata-translation-cache.json
 .env
 *.local
 .DS_Store

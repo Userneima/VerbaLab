@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
-import { FlaskConical, RefreshCw, Send, CheckCircle2, XCircle, Loader2, BookOpen, AlertTriangle, ChevronDown, ChevronUp, ArrowRight } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { FlaskConical, RefreshCw, Send, CheckCircle2, XCircle, Loader2, BookOpen, AlertTriangle, ChevronDown, ChevronUp, ArrowRight, Languages, MessageCircle } from 'lucide-react';
 import { getAllCollocations, getIELTSContextForPhrase } from '../data/verbData';
 import { checkGrammar, checkChinglish, GrammarError } from '../utils/grammarCheck';
+import { aiGrammarTutor } from '../utils/api';
 import { useStore } from '../store/StoreContext';
 
 type TestState = 'idle' | 'checking' | 'correct' | 'incorrect';
@@ -28,6 +29,17 @@ export function LabPage() {
   const [showExamples, setShowExamples] = useState(false);
   const [expandedError, setExpandedError] = useState<number | null>(null);
   const [submissionCount, setSubmissionCount] = useState(0);
+  const [tutorMessages, setTutorMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [tutorInput, setTutorInput] = useState('');
+  const [tutorLoading, setTutorLoading] = useState(false);
+  const [tutorError, setTutorError] = useState<string | null>(null);
+  const [clickedLabExampleKey, setClickedLabExampleKey] = useState<string | null>(null);
+  const [showLabTranslationGlobal, setShowLabTranslationGlobal] = useState(false);
+  const tutorEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    tutorEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [tutorMessages, tutorLoading]);
 
   const loadNew = useCallback(() => {
     const next = getRandomCollocation();
@@ -39,6 +51,11 @@ export function LabPage() {
     setOverallHint('');
     setShowExamples(false);
     setSubmissionCount(0);
+    setTutorMessages([]);
+    setTutorInput('');
+    setTutorError(null);
+    setClickedLabExampleKey(null);
+    setShowLabTranslationGlobal(false);
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -54,6 +71,9 @@ export function LabPage() {
       const trimmed = userInput.trim();
       const chinglish = await checkChinglish(trimmed, currentItem.collocation.phrase);
       if (chinglish.isChinglish && (chinglish.nativeVersion || chinglish.nativeThinking)) {
+        setErrors([]);
+        setTutorMessages([]);
+        setTutorError(null);
         store.addToCorpus({
           verbId: currentItem.verb.id,
           verb: currentItem.verb.verb,
@@ -98,6 +118,8 @@ export function LabPage() {
         store.markAsLearned(currentItem.collocation.id);
       }
     } else {
+      setTutorMessages([]);
+      setTutorError(null);
       setTestState('incorrect');
       setErrors(result.errors);
       setOverallHint(result.overallHint);
@@ -122,6 +144,37 @@ export function LabPage() {
       handleSubmit();
     }
   };
+
+  const sendTutorMessage = useCallback(async () => {
+    const q = tutorInput.trim();
+    if (!q || tutorLoading) return;
+    setTutorError(null);
+    const nextMsgs = [...tutorMessages, { role: 'user' as const, content: q }];
+    setTutorMessages(nextMsgs);
+    setTutorInput('');
+    setTutorLoading(true);
+    try {
+      const { reply } = await aiGrammarTutor({
+        sentence: userInput.trim(),
+        collocation: currentItem.collocation.phrase,
+        chineseContext: contextStr,
+        errors: errors.map(e => ({
+          description: e.description,
+          hint: e.hint,
+          grammarPoint: e.grammarPoint,
+        })),
+        overallHint: overallHint || '',
+        messages: nextMsgs,
+      });
+      setTutorMessages([...nextMsgs, { role: 'assistant', content: reply }]);
+    } catch (err: any) {
+      setTutorError(err?.message || '请求失败，请稍后重试');
+      setTutorMessages(prev => prev.slice(0, -1));
+      setTutorInput(q);
+    } finally {
+      setTutorLoading(false);
+    }
+  }, [tutorInput, tutorLoading, tutorMessages, userInput, currentItem, contextStr, errors, overallHint]);
 
   const isLearned = store.learnedCollocations.has(currentItem.collocation.id);
 
@@ -254,13 +307,16 @@ export function LabPage() {
             </div>
           )}
 
-          {testState === 'incorrect' && errors.length > 0 && (
+          {testState === 'incorrect' && (errors.length > 0 || overallHint) && (
             <div className="bg-red-50 border border-red-200 rounded-2xl p-5 space-y-4">
               <div className="flex items-center gap-2">
                 <XCircle size={20} className="text-red-500" />
-                <span className="text-red-800 font-semibold">发现 {errors.length} 个语法问题</span>
+                <span className="text-red-800 font-semibold">
+                  {errors.length > 0 ? `发现 ${errors.length} 个语法问题` : '需要调整表达'}
+                </span>
               </div>
 
+              {errors.length > 0 && (
               <div className="space-y-2">
                 {errors.map((err, i) => (
                   <div key={i} className="bg-white border border-red-100 rounded-xl overflow-hidden">
@@ -295,6 +351,7 @@ export function LabPage() {
                   </div>
                 ))}
               </div>
+              )}
 
               {overallHint && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
@@ -306,29 +363,131 @@ export function LabPage() {
                 <p className="text-red-700 text-sm font-medium mb-2">❌ 严禁直接给你答案——请根据提示自己修改！</p>
                 <p className="text-gray-500 text-xs">修改句子后重新提交，正确后将存入你的语料库</p>
               </div>
+
+              {/* 语法小助教：未通过时仍可追问 AI（讲解规则，不代改原句） */}
+              <div className="bg-white border border-red-100 rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-gray-800 font-medium text-sm">
+                  <MessageCircle size={16} className="text-violet-600 shrink-0" />
+                  语法小助教
+                  <span className="text-gray-400 font-normal text-xs">可追问规则与用法；不会替你写出整句正确答案</span>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-2 rounded-lg bg-gray-50 border border-gray-100 p-3 text-sm">
+                  {tutorMessages.length === 0 && !tutorLoading && (
+                    <p className="text-gray-400 text-xs">例如：「主谓一致这里具体怎么判断？」「为什么不能用过去完成时？」</p>
+                  )}
+                  {tutorMessages.map((m, i) => (
+                    <div
+                      key={i}
+                      className={`rounded-lg px-3 py-2 ${
+                        m.role === 'user' ? 'bg-indigo-100 text-indigo-900 ml-4' : 'bg-white border border-gray-100 text-gray-800 mr-4'
+                      }`}
+                    >
+                      <p className="text-xs font-medium text-gray-500 mb-0.5">{m.role === 'user' ? '你' : '助教'}</p>
+                      <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
+                    </div>
+                  ))}
+                  {tutorLoading && (
+                    <div className="flex items-center gap-2 text-gray-500 text-xs py-2">
+                      <Loader2 size={14} className="animate-spin" />
+                      正在思考…
+                    </div>
+                  )}
+                  <div ref={tutorEndRef} />
+                </div>
+                {tutorError && <p className="text-red-600 text-xs">{tutorError}</p>}
+                <div className="flex gap-2">
+                  <textarea
+                    value={tutorInput}
+                    onChange={e => setTutorInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendTutorMessage();
+                      }
+                    }}
+                    placeholder="输入关于语法点的问题…"
+                    rows={2}
+                    disabled={tutorLoading}
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-violet-400 bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={sendTutorMessage}
+                    disabled={tutorLoading || !tutorInput.trim()}
+                    className="self-end shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    <Send size={14} />
+                    发送
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
           {/* Reference examples (shown after correct answer) */}
           {showExamples && testState === 'correct' && (
             <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-              <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <BookOpen size={16} className="text-indigo-500" />
-                参考例句 — {currentItem.collocation.phrase}
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+                  <BookOpen size={16} className="text-indigo-500" />
+                  参考例句 — {currentItem.collocation.phrase}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowLabTranslationGlobal(v => !v)}
+                  className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    showLabTranslationGlobal
+                      ? 'bg-indigo-100 border-indigo-300 text-indigo-700'
+                      : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <Languages size={12} />
+                  {showLabTranslationGlobal ? '隐藏中文' : '显示全部中文'}
+                </button>
+              </div>
+              <p className="text-gray-400 text-xs mb-3">
+                {showLabTranslationGlobal ? '已开启：每条例句下方显示中文' : '点击例句卡片可展开/收起该句中文翻译'}
+              </p>
               <div className="space-y-3">
-                {currentItem.collocation.examples.map((ex, i) => (
-                  <div key={i} className="border border-gray-100 rounded-xl p-3.5">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      ex.scenario === 'daily' ? 'bg-blue-100 text-blue-700' :
-                      ex.scenario === 'zju' ? 'bg-purple-100 text-purple-700' :
-                      'bg-orange-100 text-orange-700'
-                    }`}>
-                      {ex.scenario === 'daily' ? '日常' : ex.scenario === 'zju' ? '校园' : '设计'}
-                    </span>
-                    <p className="text-gray-700 text-sm mt-2">{ex.content}</p>
-                  </div>
-                ))}
+                {currentItem.collocation.examples.map((ex, i) => {
+                  const exKey = `${currentItem.collocation.id}-${i}`;
+                  const showChinese = showLabTranslationGlobal || clickedLabExampleKey === exKey;
+                  return (
+                    <div
+                      key={i}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (!showLabTranslationGlobal) {
+                          setClickedLabExampleKey(k => (k === exKey ? null : exKey));
+                        }
+                      }}
+                      onKeyDown={e => {
+                        if (!showLabTranslationGlobal && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          setClickedLabExampleKey(k => (k === exKey ? null : exKey));
+                        }
+                      }}
+                      className={`border border-gray-100 rounded-xl p-3.5 transition-all ${
+                        showLabTranslationGlobal ? '' : 'cursor-pointer hover:border-indigo-200 hover:bg-indigo-50/30'
+                      }`}
+                    >
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        ex.scenario === 'daily' ? 'bg-blue-100 text-blue-700' :
+                        ex.scenario === 'zju' ? 'bg-purple-100 text-purple-700' :
+                        'bg-orange-100 text-orange-700'
+                      }`}>
+                        {ex.scenario === 'daily' ? '日常' : ex.scenario === 'zju' ? '校园' : '设计'}
+                      </span>
+                      <p className="text-gray-700 text-sm mt-2">{ex.content}</p>
+                      {showChinese && (
+                        <p className="text-gray-500 text-sm mt-2 pt-2 border-t border-gray-100">
+                          {ex.chinese ?? '（暂无翻译）'}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

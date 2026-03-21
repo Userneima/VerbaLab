@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router';
-import { BookOpen, FlaskConical, Zap, Target, TrendingUp, Award, ArrowRight, Flame } from 'lucide-react';
+import { BookOpen, FlaskConical, Zap, Target, Library, AlertCircle, LifeBuoy, ArrowRight, Flame } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { useAuth } from '../store/AuthContext';
 import { VERBS } from '../data/verbData';
@@ -100,18 +100,58 @@ export function HomePage() {
         {/* Stats row */}
         <div className="grid grid-cols-4 gap-4">
           {[
-            { label: '已学搭配', value: store.stats.totalLearned, icon: Target, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-            { label: '个人语料库', value: store.stats.corpusSize, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-            { label: '语法错误', value: store.stats.errorCount, icon: Award, color: 'text-red-500', bg: 'bg-red-50' },
-            { label: '卡壳点', value: store.stats.stuckCount, icon: Zap, color: 'text-amber-500', bg: 'bg-amber-50' },
+            {
+              label: '已学搭配',
+              path: '/foundry',
+              value: store.stats.totalLearned,
+              icon: Target,
+              color: 'text-indigo-600',
+              bg: 'bg-indigo-50',
+            },
+            {
+              label: '个人语料库',
+              path: '/corpus',
+              value: store.stats.corpusSize,
+              icon: Library,
+              color: 'text-emerald-600',
+              bg: 'bg-emerald-50',
+            },
+            {
+              label: '语法错误',
+              path: '/errors',
+              value: store.stats.errorCount,
+              icon: AlertCircle,
+              color: 'text-red-500',
+              bg: 'bg-red-50',
+            },
+            {
+              label: '卡壳点',
+              path: '/stuck',
+              value: store.stats.stuckCount,
+              icon: LifeBuoy,
+              color: 'text-amber-500',
+              bg: 'bg-amber-50',
+            },
           ].map(stat => (
-            <div key={stat.label} className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
-              <div className={`w-9 h-9 ${stat.bg} rounded-lg flex items-center justify-center mb-3`}>
-                <stat.icon size={18} className={stat.color} />
+            <button
+              key={stat.label}
+              type="button"
+              onClick={() => navigate(stat.path)}
+              className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm text-left w-full hover:shadow-md hover:border-gray-200 transition-all group focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
+            >
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className={`w-9 h-9 ${stat.bg} rounded-lg flex items-center justify-center`}>
+                  <stat.icon size={18} className={stat.color} />
+                </div>
+                <ArrowRight
+                  size={16}
+                  className="text-gray-300 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0 mt-1"
+                  aria-hidden
+                />
               </div>
               <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
               <div className="text-gray-500 text-sm mt-0.5">{stat.label}</div>
-            </div>
+            </button>
           ))}
         </div>
 

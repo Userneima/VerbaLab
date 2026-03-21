@@ -6,6 +6,7 @@ import { LabPage } from './pages/LabPage';
 import { FieldPage } from './pages/FieldPage';
 import { CorpusPage } from './pages/CorpusPage';
 import { ErrorBankPage } from './pages/ErrorBankPage';
+import { StuckPointsPage } from './pages/StuckPointsPage';
 
 export const router = createBrowserRouter([
   {
@@ -18,6 +19,7 @@ export const router = createBrowserRouter([
       { path: 'field', Component: FieldPage },
       { path: 'corpus', Component: CorpusPage },
       { path: 'errors', Component: ErrorBankPage },
+      { path: 'stuck', Component: StuckPointsPage },
     ],
   },
 ]);
