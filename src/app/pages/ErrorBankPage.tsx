@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router';
 import { AlertCircle, Search, CheckCircle2, Filter, BookOpen, Clock, RotateCcw } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import type { ErrorCategory } from '../store/useStore';
@@ -11,6 +12,7 @@ const ERROR_CATEGORY_LABELS: Record<ErrorCategory, { label: string; color: strin
   chinglish: { label: '中式表达错', color: 'bg-amber-100 text-amber-700' },
 };
 
+/** AI / 本地校验返回的 error type → 中文标签（键统一小写匹配） */
 const ERROR_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   capitalization: { label: '大写规范', color: 'bg-red-100 text-red-700' },
   pronoun_capitalization: { label: '代词大写', color: 'bg-red-100 text-red-700' },
@@ -20,9 +22,124 @@ const ERROR_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   formatting: { label: '格式规范', color: 'bg-gray-100 text-gray-700' },
   completeness: { label: '句子完整性', color: 'bg-yellow-100 text-yellow-700' },
   empty: { label: '输入为空', color: 'bg-gray-100 text-gray-700' },
+  // 常见 AI 返回的 snake_case 类型
+  subject_verb_agreement: { label: '主谓一致', color: 'bg-purple-100 text-purple-700' },
+  pronoun_agreement: { label: '代词一致', color: 'bg-purple-100 text-purple-700' },
+  redundancy: { label: '冗余表达', color: 'bg-amber-100 text-amber-800' },
+  collocation_usage: { label: '搭配用法', color: 'bg-violet-100 text-violet-700' },
+  word_order: { label: '词序', color: 'bg-blue-100 text-blue-700' },
+  preposition: { label: '介词', color: 'bg-blue-100 text-blue-700' },
+  prepositional_phrase: { label: '介词短语', color: 'bg-blue-100 text-blue-700' },
+  plural_singular: { label: '单复数', color: 'bg-indigo-100 text-indigo-700' },
+  number_agreement: { label: '数的一致', color: 'bg-indigo-100 text-indigo-700' },
+  verb_form: { label: '动词形式', color: 'bg-purple-100 text-purple-700' },
+  modal_verb: { label: '情态动词', color: 'bg-purple-100 text-purple-700' },
+  infinitive_gerund: { label: '不定式与动名词', color: 'bg-purple-100 text-purple-700' },
+  passive_voice: { label: '被动语态', color: 'bg-purple-100 text-purple-700' },
+  conditional: { label: '条件句', color: 'bg-purple-100 text-purple-700' },
+  comparative_superlative: { label: '比较级与最高级', color: 'bg-orange-100 text-orange-700' },
+  possessive: { label: '所有格', color: 'bg-red-100 text-red-700' },
+  conjunction: { label: '连词', color: 'bg-cyan-100 text-cyan-800' },
+  relative_clause: { label: '定语从句', color: 'bg-cyan-100 text-cyan-800' },
+  subordinate_clause: { label: '从句', color: 'bg-cyan-100 text-cyan-800' },
+  parallel_structure: { label: '平行结构', color: 'bg-teal-100 text-teal-800' },
+  dangling_modifier: { label: '悬垂修饰语', color: 'bg-amber-100 text-amber-800' },
+  misplaced_modifier: { label: '修饰语位置', color: 'bg-amber-100 text-amber-800' },
+  fragment: { label: '句子片段', color: 'bg-yellow-100 text-yellow-800' },
+  run_on: { label: '粘连句', color: 'bg-yellow-100 text-yellow-800' },
+  run_on_sentence: { label: '粘连句', color: 'bg-yellow-100 text-yellow-800' },
+  spelling: { label: '拼写', color: 'bg-gray-100 text-gray-700' },
+  vocabulary: { label: '用词', color: 'bg-gray-100 text-gray-700' },
+  word_choice: { label: '选词', color: 'bg-gray-100 text-gray-700' },
+  register: { label: '语体', color: 'bg-slate-100 text-slate-700' },
+  collocation: { label: '搭配', color: 'bg-violet-100 text-violet-700' },
+  syntax: { label: '句法', color: 'bg-blue-100 text-blue-700' },
+  semantics: { label: '语义', color: 'bg-slate-100 text-slate-700' },
+  negation: { label: '否定', color: 'bg-red-100 text-red-700' },
+  quantifier: { label: '量词', color: 'bg-indigo-100 text-indigo-700' },
+  determiner: { label: '限定词', color: 'bg-indigo-100 text-indigo-700' },
+  adverb_placement: { label: '副词位置', color: 'bg-teal-100 text-teal-800' },
+  adjective_order: { label: '形容词顺序', color: 'bg-teal-100 text-teal-800' },
+  voice: { label: '语态', color: 'bg-purple-100 text-purple-700' },
+  aspect: { label: '体（进行/完成）', color: 'bg-purple-100 text-purple-700' },
+  grammar: { label: '语法', color: 'bg-red-100 text-red-700' },
+  agreement: { label: '一致关系', color: 'bg-purple-100 text-purple-700' },
+  consistency: { label: '一致性', color: 'bg-purple-100 text-purple-700' },
 };
 
+const DEFAULT_ERROR_TYPE_STYLE = { label: '', color: 'bg-gray-100 text-gray-700' } as const;
+
+/** 将未知英文 type 转成可读中文提示（蛇形命名拆词意译） */
+const ERROR_TYPE_WORD_ZH: Record<string, string> = {
+  subject: '主语',
+  verb: '动词',
+  agreement: '一致',
+  pronoun: '代词',
+  redundancy: '冗余',
+  collocation: '搭配',
+  usage: '用法',
+  word: '词',
+  order: '顺序',
+  tense: '时态',
+  plural: '复数',
+  singular: '单数',
+  passive: '被动',
+  active: '主动',
+  voice: '语态',
+  article: '冠词',
+  preposition: '介词',
+  punctuation: '标点',
+  capitalization: '大小写',
+  fragment: '片段',
+  clause: '从句',
+  relative: '关系',
+  modal: '情态',
+  comparative: '比较',
+  superlative: '最高',
+  possessive: '所有格',
+  conjunction: '连词',
+  spelling: '拼写',
+  vocabulary: '词汇',
+  syntax: '句法',
+  semantic: '语义',
+  negation: '否定',
+  adverb: '副词',
+  adjective: '形容词',
+  noun: '名词',
+  gerund: '动名词',
+  infinitive: '不定式',
+  participle: '分词',
+  conditional: '条件',
+  parallel: '平行',
+  structure: '结构',
+  dangling: '悬垂',
+  misplaced: '错位',
+  modifier: '修饰语',
+  determiner: '限定词',
+  quantifier: '量词',
+  register: '语体',
+  error: '错误',
+  type: '类型',
+};
+
+function getErrorTypeStyle(type: string): { label: string; color: string } {
+  const raw = type.trim();
+  if (!raw) return { ...DEFAULT_ERROR_TYPE_STYLE, label: '未分类' };
+  const norm = raw.toLowerCase().replace(/-/g, '_');
+  const hit = ERROR_TYPE_LABELS[norm];
+  if (hit) return hit;
+  // 蛇形命名：逐段意译，未知段保留原文段
+  const parts = norm.split(/_+/).filter(Boolean);
+  if (parts.length > 0) {
+    const zhParts = parts.map(p => ERROR_TYPE_WORD_ZH[p] || p);
+    return { label: zhParts.join('·'), color: DEFAULT_ERROR_TYPE_STYLE.color };
+  }
+  return { label: raw, color: DEFAULT_ERROR_TYPE_STYLE.color };
+}
+
 export function ErrorBankPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight');
   const store = useStore();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
@@ -53,6 +170,38 @@ export function ErrorBankPage() {
     return result.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   }, [store.errorBank, search, filterStatus, filterCategory]);
 
+  useEffect(() => {
+    if (!highlightId) return;
+    const entry = store.errorBank.find(e => e.id === highlightId);
+    if (!entry) {
+      setSearchParams(prev => {
+        const p = new URLSearchParams(prev);
+        p.delete('highlight');
+        return p;
+      }, { replace: true });
+      return;
+    }
+    setSearch('');
+    setFilterStatus('all');
+    setFilterCategory('all');
+    setExpandedId(highlightId);
+  }, [highlightId, store.errorBank, setSearchParams]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    if (!filtered.some(e => e.id === highlightId)) return;
+    const id = highlightId;
+    const t = window.requestAnimationFrame(() => {
+      document.getElementById(`error-row-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setSearchParams(prev => {
+        const p = new URLSearchParams(prev);
+        p.delete('highlight');
+        return p;
+      }, { replace: true });
+    });
+    return () => window.cancelAnimationFrame(t);
+  }, [highlightId, filtered, setSearchParams]);
+
   // Error type stats
   const errorTypeStats = useMemo(() => {
     const stats: Record<string, number> = {};
@@ -69,15 +218,15 @@ export function ErrorBankPage() {
   const unresolvedCount = store.errorBank.filter(e => !e.resolved).length;
 
   return (
-    <div className="flex h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto">
+    <div className="flex h-full min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {/* Header */}
-        <div className="bg-white border-b border-gray-100 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2">
+        <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <AlertCircle size={20} className="text-red-500" />
-                <h1 className="font-bold text-gray-800">语法错误库</h1>
+                <h1 className="font-bold text-gray-800 text-base sm:text-lg">语法错误库</h1>
                 {unresolvedCount > 0 && (
                   <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full font-medium">
                     {unresolvedCount} 待复习
@@ -89,7 +238,7 @@ export function ErrorBankPage() {
           </div>
         </div>
 
-        <div className="p-6 space-y-5">
+        <div className="p-4 sm:p-6 pb-safe sm:pb-6 space-y-5">
           {store.errorBank.length === 0 ? (
             <div className="text-center py-16">
               <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -164,7 +313,7 @@ export function ErrorBankPage() {
                   <h3 className="font-semibold text-gray-700 text-sm mb-3">高频错误类型</h3>
                   <div className="flex flex-wrap gap-2">
                     {errorTypeStats.map(([type, count]) => {
-                      const info = ERROR_TYPE_LABELS[type] || { label: type, color: 'bg-gray-100 text-gray-700' };
+                      const info = getErrorTypeStyle(type);
                       return (
                         <div key={type} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${info.color}`}>
                           <span>{info.label}</span>
@@ -226,7 +375,8 @@ export function ErrorBankPage() {
                   return (
                     <div
                       key={entry.id}
-                      className={`bg-white border rounded-xl overflow-hidden transition-all ${
+                      id={`error-row-${entry.id}`}
+                      className={`bg-white border rounded-xl overflow-hidden transition-all scroll-mt-24 ${
                         entry.resolved ? 'border-gray-100 opacity-70' : 'border-red-100'
                       }`}
                     >
@@ -252,7 +402,7 @@ export function ErrorBankPage() {
                             <p className="text-gray-800 text-sm leading-relaxed">"{entry.originalSentence}"</p>
                             <div className="flex flex-wrap gap-1.5 mt-2">
                               {entry.errorTypes.map((t, i) => {
-                                const info = ERROR_TYPE_LABELS[t] || { label: t, color: 'bg-gray-100 text-gray-700' };
+                                const info = getErrorTypeStyle(t);
                                 return (
                                   <span key={i} className={`text-xs px-2 py-0.5 rounded-full ${info.color}`}>
                                     {info.label}

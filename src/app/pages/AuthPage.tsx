@@ -34,7 +34,7 @@ export function AuthPage() {
   const displayError = localError || error;
 
   return (
-    <div className="min-h-screen bg-[#0f172a] flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-[#0f172a] flex items-center justify-center p-4 pt-safe pb-safe">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">

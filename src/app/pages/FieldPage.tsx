@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Zap, AlertTriangle, Send, RefreshCw, Loader2, HelpCircle, X, ChevronRight, CheckCircle2, MessageSquare, Mic, MicOff } from 'lucide-react';
 import { IELTS_QUESTIONS } from '../data/verbData';
 import { getStuckSuggestion } from '../utils/grammarCheck';
@@ -58,9 +58,19 @@ export function FieldPage() {
   const [stuckSuggestion, setStuckSuggestion] = useState<{ suggestion: string; type: 'corpus' | 'verb' | 'paraphrase' } | null>(null);
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [usedVoiceThisRound, setUsedVoiceThisRound] = useState(false);
+  const [corpusPanelOpen, setCorpusPanelOpen] = useState(false);
 
   // Azure Speech recognition
   const speech = useSpeechRecognition();
+
+  useEffect(() => {
+    if (!corpusPanelOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCorpusPanelOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [corpusPanelOpen]);
 
   const handleNewQuestion = useCallback(() => {
     setQuestion(getRandomQuestion());
@@ -70,8 +80,20 @@ export function FieldPage() {
     setStuckSuggestion(null);
     setEvaluation(null);
     setUsedVoiceThisRound(false);
+    setCorpusPanelOpen(false);
     if (speech.isListening) speech.stopListening();
   }, [speech]);
+
+  const appendFromCorpus = useCallback((userSentence: string) => {
+    const tail = userSentence.trim();
+    if (!tail) return;
+    setAnswer(prev => {
+      const p = prev.trimEnd();
+      if (!p) return tail;
+      return `${p} ${tail}`;
+    });
+    setCorpusPanelOpen(false);
+  }, []);
 
   const handleStuck = useCallback(async () => {
     if (!stuckInput.trim()) return;
@@ -138,23 +160,98 @@ export function FieldPage() {
   };
 
   return (
-    <div className="flex h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+    <div className="flex flex-col lg:flex-row h-full min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-gray-50">
         <div className="max-w-2xl mx-auto space-y-5">
           {/* Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Zap size={20} className="text-amber-600" />
-              <h1 className="font-bold text-gray-800">实战仓 · 雅思口语模拟</h1>
-              <span className="text-xs text-gray-400">· 支持语音录入与评分</span>
+          <div className="flex flex-row items-start justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 pr-2">
+              <Zap size={20} className="text-amber-600 shrink-0" />
+              <h1 className="font-bold text-gray-800 text-base sm:text-lg">实战仓 · 雅思口语模拟</h1>
+              <span className="text-xs text-gray-400 hidden sm:inline">· 支持语音录入与评分</span>
             </div>
-            <button
-              onClick={handleNewQuestion}
-              className="flex items-center gap-2 text-sm text-gray-600 hover:text-amber-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-amber-50"
-            >
-              <RefreshCw size={14} />
-              换一题
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div className="relative lg:hidden">
+                <button
+                  type="button"
+                  onClick={() => setCorpusPanelOpen(v => !v)}
+                  className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors touch-manipulation ${
+                    corpusPanelOpen
+                      ? 'border-amber-300 bg-amber-50 text-amber-800'
+                      : 'border-gray-200 text-gray-600 hover:bg-gray-100'
+                  }`}
+                  aria-expanded={corpusPanelOpen}
+                  aria-haspopup="dialog"
+                >
+                  <MessageSquare size={14} />
+                  语料
+                </button>
+                {corpusPanelOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="关闭语料面板"
+                      className="fixed inset-0 z-40 bg-black/20 lg:hidden"
+                      onClick={() => setCorpusPanelOpen(false)}
+                    />
+                    <div
+                      className="absolute right-0 top-[calc(100%+0.375rem)] z-50 w-[min(calc(100vw-2rem),20rem)] max-h-[min(70vh,22rem)] flex flex-col rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden lg:hidden"
+                      role="dialog"
+                      aria-label="可用语料"
+                    >
+                      <div className="px-3 py-2.5 border-b border-gray-100 bg-gray-50/80 flex items-center justify-between shrink-0">
+                        <div>
+                          <span className="text-xs font-semibold text-gray-700">可用语料</span>
+                          <p className="text-[11px] text-gray-400 mt-0.5">点击句子追加到回答</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCorpusPanelOpen(false)}
+                          className="p-1 rounded-md text-gray-500 hover:bg-gray-200/80"
+                          aria-label="关闭"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
+                        {store.corpus.length === 0 ? (
+                          <div className="text-center py-8 text-gray-400 text-xs">
+                            <MessageSquare size={24} className="mx-auto mb-2 opacity-50" />
+                            <p>语料库为空</p>
+                            <p className="mt-1">先去实验室造句！</p>
+                          </div>
+                        ) : (
+                          store.corpus.slice(0, 15).map(entry => (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              onClick={() => appendFromCorpus(entry.userSentence)}
+                              className="w-full text-left border border-gray-100 rounded-lg p-2.5 hover:border-indigo-200 hover:bg-indigo-50 transition-colors"
+                            >
+                              <span className="text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-medium">
+                                {entry.collocation}
+                              </span>
+                              <p className="text-xs text-gray-600 mt-1 leading-relaxed line-clamp-3">{entry.userSentence}</p>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                      <div className="p-2.5 border-t border-gray-100 bg-gray-50 text-center shrink-0">
+                        <div className="text-xs text-gray-500">{store.corpus.length} 个语料库句子可用</div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleNewQuestion}
+                className="flex items-center gap-2 text-sm text-gray-600 hover:text-amber-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-amber-50 border border-transparent hover:border-amber-100 touch-manipulation"
+              >
+                <RefreshCw size={14} />
+                换一题
+              </button>
+            </div>
           </div>
 
           {/* IELTS Question Card */}
@@ -204,7 +301,7 @@ export function FieldPage() {
 
               {/* Action buttons */}
               {fieldState === 'answering' && (
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-2 sm:gap-3">
                   <button
                     onClick={handleSubmitAnswer}
                     disabled={!answer.trim()}
@@ -343,9 +440,9 @@ export function FieldPage() {
           {fieldState === 'done' && evaluation && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-slate-700 to-slate-900 p-5 text-white">
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:flex-wrap">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-slate-300 text-xs uppercase tracking-wide">综合评分</span>
                       {usedVoiceThisRound && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-200">
@@ -356,7 +453,7 @@ export function FieldPage() {
                     <div className="text-4xl font-bold">{evaluation.score}</div>
                     <div className="text-slate-400 text-sm">/ 100</div>
                   </div>
-                  <div className="grid grid-cols-3 gap-4 text-center">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-center w-full sm:w-auto">
                     {[
                       { label: '流利度', value: evaluation.fluency, hint: '表达连贯、语速与停顿' },
                       { label: '语法', value: evaluation.grammar, hint: '时态与句式正确性' },
@@ -375,7 +472,7 @@ export function FieldPage() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-slate-400 text-xs mt-3">
+                  <p className="text-slate-400 text-xs mt-1 sm:mt-0 w-full basis-full order-last">
                     以上由 AI 根据你的回答综合评定；若使用语音录入，流利度会结合口语表现。
                   </p>
                 </div>
@@ -428,13 +525,13 @@ export function FieldPage() {
         </div>
       </div>
 
-      {/* Corpus sidebar */}
-      <div className="w-64 bg-white border-l border-gray-100 flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-gray-100">
+      {/* Corpus sidebar — 仅大屏；小屏用语料按钮浮层，避免占用 flex 高度遮挡回答区 */}
+      <div className="hidden lg:flex w-64 shrink-0 border-l border-gray-100 bg-white flex-col overflow-hidden min-h-0">
+        <div className="p-4 border-b border-gray-100 shrink-0">
           <h3 className="font-semibold text-gray-700 text-sm">可用语料</h3>
-          <p className="text-xs text-gray-400 mt-0.5">从你的语料库中获取灵感</p>
+          <p className="text-xs text-gray-400 mt-0.5">点击句子追加到回答</p>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
           {store.corpus.length === 0 ? (
             <div className="text-center py-8 text-gray-400 text-xs">
               <MessageSquare size={24} className="mx-auto mb-2 opacity-50" />
@@ -443,24 +540,21 @@ export function FieldPage() {
             </div>
           ) : (
             store.corpus.slice(0, 15).map(entry => (
-              <div
+              <button
                 key={entry.id}
-                className="border border-gray-100 rounded-lg p-2.5 cursor-pointer hover:border-indigo-200 hover:bg-indigo-50 transition-colors"
-                onClick={() => {
-                  // Let user copy to answer (append)
-                  setAnswer(prev => prev ? prev + ' ' : '');
-                }}
-                title="点击查看"
+                type="button"
+                onClick={() => appendFromCorpus(entry.userSentence)}
+                className="w-full text-left border border-gray-100 rounded-lg p-2.5 hover:border-indigo-200 hover:bg-indigo-50 transition-colors"
               >
                 <span className="text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-medium">
                   {entry.collocation}
                 </span>
                 <p className="text-xs text-gray-600 mt-1 leading-relaxed line-clamp-3">{entry.userSentence}</p>
-              </div>
+              </button>
             ))
           )}
         </div>
-        <div className="p-3 border-t border-gray-100 bg-gray-50 text-center">
+        <div className="p-3 border-t border-gray-100 bg-gray-50 text-center shrink-0">
           <div className="text-xs text-gray-500">{store.corpus.length} 个语料库句子可用</div>
         </div>
       </div>

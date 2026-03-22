@@ -1,15 +1,56 @@
 import { NavLink, Outlet, useLocation } from 'react-router';
-import { BookOpen, FlaskConical, Zap, Library, AlertCircle, Home, Cloud, CloudOff, Loader2, CheckCircle2, ArrowUpCircle, ArrowDownCircle, LogOut, User, Target, LifeBuoy } from 'lucide-react';
+import {
+  BookOpen,
+  FlaskConical,
+  Zap,
+  Library,
+  AlertCircle,
+  Home,
+  Cloud,
+  CloudOff,
+  Loader2,
+  CheckCircle2,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  LogOut,
+  User,
+  Target,
+  LifeBuoy,
+  Menu,
+  X,
+  Sparkles,
+  BookMarked,
+  type LucideIcon,
+} from 'lucide-react';
+import type { AppStore } from '../store/useStore';
 import { useStore, StoreProvider } from '../store/StoreContext';
 import { AuthProvider, useAuth } from '../store/AuthContext';
 import { AuthPage } from '../pages/AuthPage';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-const navItems = [
+type NavItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  subtitle?: string;
+  exact?: boolean;
+  badge?: (s: AppStore) => number;
+};
+
+const navItems: NavItem[] = [
   { to: '/', label: '概览', icon: Home, exact: true },
   { to: '/foundry', label: '资产区', icon: BookOpen, subtitle: 'The Foundry', exact: false },
   { to: '/lab', label: '实验室', icon: FlaskConical, subtitle: 'The Lab', exact: false },
   { to: '/field', label: '实战仓', icon: Zap, subtitle: 'The Field', exact: false },
+  { to: '/word-lab', label: '词卡工坊', icon: Sparkles, subtitle: 'Word Lab', exact: false },
+  {
+    to: '/vocab-review',
+    label: '卡片复习',
+    icon: BookMarked,
+    subtitle: '到期提醒',
+    exact: false,
+    badge: s => s.stats.vocabDueCount,
+  },
 ];
 
 export function Layout() {
@@ -49,6 +90,11 @@ function LayoutInner() {
   const { user, signOut } = useAuth();
   const [showSyncPanel, setShowSyncPanel] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [location.pathname]);
 
   const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || '用户';
   const userEmail = user?.email || '';
@@ -61,20 +107,56 @@ function LayoutInner() {
     }`;
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Sidebar: middle scrolls so cloud sync never pushes account off-screen */}
-      <aside className="w-64 bg-[#0f172a] flex flex-col shrink-0 border-r border-slate-800 min-h-0">
+    <div className="flex h-[100dvh] max-h-[100dvh] flex-col md:flex-row bg-gray-50 overflow-hidden">
+      {/* 移动端顶栏 */}
+      <header className="md:hidden shrink-0 flex items-center justify-between gap-2 min-h-[3.5rem] px-3 pt-safe bg-[#0f172a] border-b border-slate-700">
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          className="p-2.5 -ml-1 rounded-xl text-white hover:bg-slate-800 active:bg-slate-700 touch-manipulation"
+          aria-label="打开导航菜单"
+        >
+          <Menu size={22} strokeWidth={2} />
+        </button>
+        <span className="font-semibold text-white text-sm truncate flex-1 text-center">FluentFlow</span>
+        <span className="w-11 shrink-0" aria-hidden />
+      </header>
+
+      {/* 抽屉遮罩 */}
+      {drawerOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-40 bg-black/50 md:hidden touch-manipulation"
+          aria-label="关闭菜单"
+          onClick={() => setDrawerOpen(false)}
+        />
+      )}
+
+      {/* Sidebar: 小屏抽屉，md+ 固定侧栏 */}
+      <aside
+        className={`fixed md:static z-50 md:z-0 inset-y-0 left-0 flex flex-col min-h-0 w-[min(19rem,90vw)] md:w-64 max-w-[min(19rem,90vw)] md:max-w-none bg-[#0f172a] border-r border-slate-800 transition-transform duration-200 ease-out md:translate-x-0 ${
+          drawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}
+      >
         {/* Logo */}
-        <div className="p-6 border-b border-slate-700 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-indigo-500 rounded-xl flex items-center justify-center">
+        <div className="p-4 md:p-6 border-b border-slate-700 shrink-0 flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 bg-indigo-500 rounded-xl flex items-center justify-center shrink-0">
               <span className="text-white font-bold text-sm">FF</span>
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="text-white font-bold text-sm leading-tight">FluentFlow</div>
               <div className="text-slate-400 text-xs">v2.0 · 动词驱动</div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(false)}
+            className="md:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 touch-manipulation shrink-0"
+            aria-label="关闭"
+          >
+            <X size={22} />
+          </button>
         </div>
 
         {/* Nav + 云同步：可滚动，展开面板只占用此区域 */}
@@ -85,6 +167,7 @@ function LayoutInner() {
               const isActive = item.exact
                 ? location.pathname === item.to
                 : location.pathname.startsWith(item.to);
+              const n = item.badge?.(store) ?? 0;
               return (
                 <NavLink
                   key={item.to}
@@ -97,7 +180,7 @@ function LayoutInner() {
                   }`}
                 >
                   <Icon size={18} className="shrink-0" />
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium">{item.label}</div>
                     {item.subtitle && (
                       <div className={`text-xs ${isActive ? 'text-indigo-200' : 'text-slate-500 group-hover:text-slate-400'}`}>
@@ -105,6 +188,11 @@ function LayoutInner() {
                       </div>
                     )}
                   </div>
+                  {n > 0 && (
+                    <span className="shrink-0 text-[10px] font-semibold bg-amber-500 text-white min-w-[1.25rem] h-5 px-1 rounded-full flex items-center justify-center">
+                      {n > 99 ? '99+' : n}
+                    </span>
+                  )}
                 </NavLink>
               );
             })}
@@ -219,7 +307,7 @@ function LayoutInner() {
         </div>
 
         {/* User info — 固定在侧栏底部 */}
-        <div className="px-4 pb-4 border-t border-slate-700 pt-3 shrink-0 bg-[#0f172a]">
+        <div className="px-4 pb-safe md:pb-4 border-t border-slate-700 pt-3 shrink-0 bg-[#0f172a]">
           <div className="relative">
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
@@ -235,7 +323,7 @@ function LayoutInner() {
             </button>
 
             {showUserMenu && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden z-10">
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden z-[60] max-h-[min(50vh,20rem)] overflow-y-auto">
                 <button
                   onClick={async () => {
                     setShowUserMenu(false);
@@ -252,7 +340,7 @@ function LayoutInner() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-hidden flex flex-col min-w-0">
+      <main className="flex-1 overflow-hidden flex flex-col min-w-0 min-h-0 pb-safe md:pb-0">
         <Outlet />
       </main>
     </div>

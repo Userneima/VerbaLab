@@ -1,5 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { syncSave, syncLoad } from '../utils/api';
+import {
+  computeNextDueAfterView,
+  computeAfterRemembered,
+  computeAfterStruggled,
+  initialNextDueAt,
+  isVocabCardDue,
+} from '../utils/vocabCardReview';
 
 export interface CorpusEntry {
   id: string;
@@ -56,6 +63,65 @@ export interface StuckPointEntry {
   resolved: boolean;
 }
 
+/** 语料库学习模块：单词卡 · 一题一句（与实验室造句语料 CorpusEntry 分立） */
+export interface VocabCardItem {
+  id: string;
+  questionId: string;
+  part: number;
+  topic: string;
+  questionSnapshot: string;
+  sentence: string;
+  collocationsUsed: string[];
+  chinese?: string;
+}
+
+export interface VocabCard {
+  id: string;
+  timestamp: string;
+  headword: string;
+  sense?: string;
+  tags: string[];
+  items: VocabCardItem[];
+  source: 'ai_word_lab';
+  lastViewedAt: string | null;
+  nextDueAt: string | null;
+  reviewStage: number;
+}
+
+function normalizeVocabCardItem(raw: any, idx: number, cardId: string): VocabCardItem {
+  return {
+    id: String(raw?.id || `${cardId}-i${idx}`),
+    questionId: String(raw?.questionId || ''),
+    part: Number(raw?.part) || 1,
+    topic: String(raw?.topic || ''),
+    questionSnapshot: String(raw?.questionSnapshot || ''),
+    sentence: String(raw?.sentence || ''),
+    collocationsUsed: Array.isArray(raw?.collocationsUsed)
+      ? raw.collocationsUsed.map((x: any) => String(x))
+      : [],
+    chinese: raw?.chinese ? String(raw.chinese) : undefined,
+  };
+}
+
+function normalizeVocabCard(raw: any): VocabCard {
+  const id = String(raw?.id || `VC${Date.now()}`);
+  const items = Array.isArray(raw?.items)
+    ? raw.items.map((it: any, i: number) => normalizeVocabCardItem(it, i, id))
+    : [];
+  return {
+    id,
+    timestamp: String(raw?.timestamp || new Date().toISOString()),
+    headword: String(raw?.headword || ''),
+    sense: raw?.sense ? String(raw.sense) : undefined,
+    tags: Array.isArray(raw?.tags) ? raw.tags.map((t: any) => String(t)) : [],
+    items,
+    source: 'ai_word_lab',
+    lastViewedAt: raw?.lastViewedAt != null ? String(raw.lastViewedAt) : null,
+    nextDueAt: raw?.nextDueAt != null ? String(raw.nextDueAt) : null,
+    reviewStage: typeof raw?.reviewStage === 'number' ? raw.reviewStage : 0,
+  };
+}
+
 export interface LearningProgress {
   learnedCollocations: Set<string>;
 }
@@ -79,6 +145,9 @@ function loadFromStorage<T>(key: string, defaultValue: T): T {
           nativeVersion: e.nativeVersion,
           nativeThinking: e.nativeThinking,
         })) as unknown as T;
+      }
+      if (key === 'ff_vocab_cards' && Array.isArray(parsed)) {
+        return parsed.map((c: any) => normalizeVocabCard(c)) as unknown as T;
       }
       return parsed;
     }
@@ -110,6 +179,9 @@ export function useAppStore(accessToken: string | null) {
   );
   const [learnedCollocations, setLearnedCollocations] = useState<Set<string>>(() =>
     loadFromStorage<Set<string>>('ff_learned', new Set())
+  );
+  const [vocabCards, setVocabCards] = useState<VocabCard[]>(() =>
+    loadFromStorage<VocabCard[]>('ff_vocab_cards', [])
   );
 
   // Sync state
@@ -145,6 +217,7 @@ export function useAppStore(accessToken: string | null) {
   useEffect(() => { saveToStorage('ff_errors', errorBank); }, [errorBank]);
   useEffect(() => { saveToStorage('ff_stuck', stuckPoints); }, [stuckPoints]);
   useEffect(() => { saveToStorage('ff_learned', learnedCollocations); }, [learnedCollocations]);
+  useEffect(() => { saveToStorage('ff_vocab_cards', vocabCards); }, [vocabCards]);
 
   const markAsLearned = useCallback((colId: string) => {
     setLearnedCollocations(prev => {
@@ -239,6 +312,80 @@ export function useAppStore(accessToken: string | null) {
     setErrorBank([]);
     setStuckPoints([]);
     setLearnedCollocations(new Set());
+    setVocabCards([]);
+  }, []);
+
+  const addVocabCard = useCallback(
+    (input: { headword: string; sense?: string; tags: string[]; items: VocabCardItem[] }) => {
+      const id = `VC${Date.now()}`;
+      const now = new Date().toISOString();
+      const items = input.items.map((it, i) => ({
+        ...it,
+        id: it.id || `${id}-i${i}`,
+      }));
+      const newCard: VocabCard = {
+        id,
+        timestamp: now,
+        headword: input.headword.trim(),
+        sense: input.sense?.trim() || undefined,
+        tags: input.tags,
+        items,
+        source: 'ai_word_lab',
+        lastViewedAt: null,
+        nextDueAt: initialNextDueAt(),
+        reviewStage: 0,
+      };
+      setVocabCards(prev => [newCard, ...prev]);
+      return newCard;
+    },
+    []
+  );
+
+  const updateVocabCard = useCallback((cardId: string, patch: Partial<VocabCard>) => {
+    setVocabCards(prev =>
+      prev.map(c => (c.id === cardId ? { ...c, ...patch, id: c.id } : c))
+    );
+  }, []);
+
+  const deleteVocabCard = useCallback((cardId: string) => {
+    setVocabCards(prev => prev.filter(c => c.id !== cardId));
+  }, []);
+
+  /** 已浏览：清零「到期」节奏，按当前阶段推迟下次提醒 */
+  const markVocabCardViewed = useCallback((cardId: string) => {
+    const now = new Date().toISOString();
+    setVocabCards(prev =>
+      prev.map(c => {
+        if (c.id !== cardId) return c;
+        return {
+          ...c,
+          lastViewedAt: now,
+          nextDueAt: computeNextDueAfterView(c.reviewStage),
+        };
+      })
+    );
+  }, []);
+
+  const markVocabCardRemembered = useCallback((cardId: string) => {
+    const now = new Date().toISOString();
+    setVocabCards(prev =>
+      prev.map(c => {
+        if (c.id !== cardId) return c;
+        const { reviewStage, nextDueAt } = computeAfterRemembered(c.reviewStage);
+        return { ...c, lastViewedAt: now, reviewStage, nextDueAt };
+      })
+    );
+  }, []);
+
+  const markVocabCardStruggled = useCallback((cardId: string) => {
+    const now = new Date().toISOString();
+    setVocabCards(prev =>
+      prev.map(c => {
+        if (c.id !== cardId) return c;
+        const { reviewStage, nextDueAt } = computeAfterStruggled();
+        return { ...c, lastViewedAt: now, reviewStage, nextDueAt };
+      })
+    );
   }, []);
 
   // ========== Cloud Sync ==========
@@ -257,6 +404,7 @@ export function useAppStore(accessToken: string | null) {
         errorBank,
         stuckPoints,
         learnedCollocations: Array.from(learnedCollocations),
+        vocabCards,
       });
       const ts = result.timestamp;
       setLastSyncTime(ts);
@@ -269,7 +417,7 @@ export function useAppStore(accessToken: string | null) {
       setSyncError(err.message || 'Sync failed');
       setSyncStatus('error');
     }
-  }, [accessToken, corpus, errorBank, stuckPoints, learnedCollocations]);
+  }, [accessToken, corpus, errorBank, stuckPoints, learnedCollocations, vocabCards]);
 
   const pullFromCloud = useCallback(async () => {
     if (!accessToken) {
@@ -285,6 +433,7 @@ export function useAppStore(accessToken: string | null) {
       setErrorBank(data.errorBank || []);
       setStuckPoints(data.stuckPoints || []);
       setLearnedCollocations(new Set(data.learnedCollocations || []));
+      setVocabCards((data.vocabCards || []).map((c: any) => normalizeVocabCard(c)));
       const ts = new Date().toISOString();
       setLastSyncTime(ts);
       localStorage.setItem('ff_last_sync', ts);
@@ -312,12 +461,14 @@ export function useAppStore(accessToken: string | null) {
             (data.corpus?.length > 0) ||
             (data.errorBank?.length > 0) ||
             (data.stuckPoints?.length > 0) ||
-            (data.learnedCollocations?.length > 0);
+            (data.learnedCollocations?.length > 0) ||
+            (data.vocabCards?.length > 0);
           if (hasCloudData) {
             setCorpus(data.corpus || []);
             setErrorBank(data.errorBank || []);
             setStuckPoints(data.stuckPoints || []);
             setLearnedCollocations(new Set(data.learnedCollocations || []));
+            setVocabCards((data.vocabCards || []).map((c: any) => normalizeVocabCard(c)));
           }
           const ts = new Date().toISOString();
           setLastSyncTime(ts);
@@ -345,7 +496,12 @@ export function useAppStore(accessToken: string | null) {
   // Track data version changes
   useEffect(() => {
     dataVersion.current += 1;
-  }, [corpus, errorBank, stuckPoints, learnedCollocations]);
+  }, [corpus, errorBank, stuckPoints, learnedCollocations, vocabCards]);
+
+  const vocabDueCount = useMemo(
+    () => vocabCards.filter(c => isVocabCardDue(c.nextDueAt)).length,
+    [vocabCards]
+  );
 
   // Auto debounce sync: when data changes and user is logged in
   useEffect(() => {
@@ -371,6 +527,7 @@ export function useAppStore(accessToken: string | null) {
           errorBank,
           stuckPoints,
           learnedCollocations: Array.from(learnedCollocations),
+          vocabCards,
         });
         const ts = result.timestamp;
         setLastSyncTime(ts);
@@ -390,13 +547,15 @@ export function useAppStore(accessToken: string | null) {
         clearTimeout(debounceTimer.current);
       }
     };
-  }, [accessToken, corpus, errorBank, stuckPoints, learnedCollocations, syncStatus, syncError, autoSyncEnabled]);
+  }, [accessToken, corpus, errorBank, stuckPoints, learnedCollocations, vocabCards, syncStatus, syncError, autoSyncEnabled]);
 
   return {
     corpus,
     errorBank,
     stuckPoints,
     learnedCollocations,
+    vocabCards,
+    vocabDueCount,
     markAsLearned,
     unmarkAsLearned,
     addToCorpus,
@@ -406,6 +565,12 @@ export function useAppStore(accessToken: string | null) {
     resetReview,
     addStuckPoint,
     resolveStuck,
+    addVocabCard,
+    updateVocabCard,
+    deleteVocabCard,
+    markVocabCardViewed,
+    markVocabCardRemembered,
+    markVocabCardStruggled,
     clearAll,
     // Sync
     syncStatus,
@@ -421,7 +586,9 @@ export function useAppStore(accessToken: string | null) {
       corpusSize: corpus.length,
       errorCount: errorBank.filter(e => !e.resolved).length,
       stuckCount: stuckPoints.filter(s => !s.resolved).length,
-    }
+      vocabCardCount: vocabCards.length,
+      vocabDueCount,
+    },
   };
 }
 

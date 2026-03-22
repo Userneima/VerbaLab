@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router';
-import { BookOpen, FlaskConical, Zap, Target, Library, AlertCircle, LifeBuoy, ArrowRight, Flame } from 'lucide-react';
+import { BookOpen, FlaskConical, Zap, Target, Library, AlertCircle, LifeBuoy, ArrowRight, Flame, Sparkles, BookMarked } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { useAuth } from '../store/AuthContext';
 import { VERBS } from '../data/verbData';
@@ -55,6 +55,17 @@ export function HomePage() {
       path: '/field',
       stat: `${store.stats.stuckCount} 卡壳点`,
     },
+    {
+      icon: Sparkles,
+      color: 'bg-fuchsia-500',
+      bgLight: 'bg-fuchsia-50',
+      textColor: 'text-fuchsia-700',
+      label: '词卡工坊',
+      subtitle: 'Word Lab',
+      desc: '输入单词，AI 按雅思题与资产区搭配生成多题例句，入库并参与复习提醒',
+      path: '/word-lab',
+      stat: `${store.stats.vocabCardCount} 张卡片`,
+    },
   ];
 
   const recentCorpus = store.corpus.slice(0, 5);
@@ -62,14 +73,14 @@ export function HomePage() {
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Header */}
-      <div className="bg-[#0f172a] text-white px-8 py-8">
+      <div className="bg-[#0f172a] text-white px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-2xl font-bold mb-1">{userName}，欢迎回来 👋</h1>
-              <p className="text-slate-400">开始今天的英语动词训练，建立属于你的弹药库</p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold mb-1">{userName}，欢迎回来 👋</h1>
+              <p className="text-slate-400 text-sm sm:text-base">开始今天的英语动词训练，建立属于你的弹药库</p>
             </div>
-            <div className="flex items-center gap-2 bg-slate-800 px-4 py-2 rounded-xl">
+            <div className="flex items-center gap-2 bg-slate-800 px-4 py-2 rounded-xl shrink-0 self-start sm:self-auto">
               <Flame size={16} className="text-orange-400" />
               <span className="text-sm text-slate-300">连续学习 <span className="text-white font-bold">1</span> 天</span>
             </div>
@@ -96,9 +107,28 @@ export function HomePage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-8 py-6 space-y-6">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-safe sm:pb-6 space-y-6">
+        {store.stats.vocabDueCount > 0 && (
+          <button
+            type="button"
+            onClick={() => navigate('/vocab-review')}
+            className="w-full text-left flex items-center justify-between gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200 hover:bg-amber-100/80 transition-colors"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-amber-200 flex items-center justify-center shrink-0">
+                <BookMarked size={20} className="text-amber-800" />
+              </div>
+              <div>
+                <div className="font-semibold text-amber-900">有 {store.stats.vocabDueCount} 张单词卡片待复习</div>
+                <div className="text-sm text-amber-800/80">打开卡片复习 · 已浏览可推迟提醒</div>
+              </div>
+            </div>
+            <ArrowRight size={18} className="text-amber-700 shrink-0" />
+          </button>
+        )}
+
         {/* Stats row */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {[
             {
               label: '已学搭配',
@@ -158,7 +188,7 @@ export function HomePage() {
         {/* Module cards */}
         <div>
           <h2 className="text-gray-800 font-semibold mb-3">学习模块</h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {modules.map(mod => {
               const Icon = mod.icon;
               return (
@@ -172,7 +202,7 @@ export function HomePage() {
                   </div>
                   <div className="font-semibold text-gray-800 group-hover:text-indigo-600 transition-colors">
                     {mod.label}
-                    <span className="text-gray-400 font-normal text-sm ml-2">{mod.subtitle}</span>
+                    <span className="text-gray-400 font-normal text-sm ml-0 sm:ml-2 block sm:inline mt-0.5 sm:mt-0">{mod.subtitle}</span>
                   </div>
                   <p className="text-gray-500 text-sm mt-1 leading-relaxed">{mod.desc}</p>
                   <div className={`mt-3 text-xs font-medium ${mod.textColor} ${mod.bgLight} inline-block px-2 py-1 rounded-md`}>
@@ -188,7 +218,7 @@ export function HomePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Verb progress */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
             <h2 className="text-gray-800 font-semibold mb-4">动词学习进度</h2>

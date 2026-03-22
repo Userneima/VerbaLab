@@ -85,17 +85,29 @@ app.post("/make-server-1fc434d6/sync/save", async (c) => {
     }
 
     const body = await c.req.json();
-    const { corpus, errorBank, stuckPoints, learnedCollocations } = body;
+    const { corpus, errorBank, stuckPoints, learnedCollocations, vocabCards } = body;
 
     const prefix = `ffu_${userId}`;
 
     await kv.mset(
-      [`${prefix}_corpus`, `${prefix}_errors`, `${prefix}_stuck`, `${prefix}_learned`],
-      [corpus || [], errorBank || [], stuckPoints || [], learnedCollocations || []],
+      [
+        `${prefix}_corpus`,
+        `${prefix}_errors`,
+        `${prefix}_stuck`,
+        `${prefix}_learned`,
+        `${prefix}_vocab`,
+      ],
+      [
+        corpus || [],
+        errorBank || [],
+        stuckPoints || [],
+        learnedCollocations || [],
+        vocabCards || [],
+      ],
     );
 
     console.log(
-      `Data saved for user: ${userId}, corpus: ${(corpus || []).length}, errors: ${(errorBank || []).length}`,
+      `Data saved for user: ${userId}, corpus: ${(corpus || []).length}, errors: ${(errorBank || []).length}, vocab: ${(vocabCards || []).length}`,
     );
 
     return c.json({ success: true, timestamp: new Date().toISOString() });
@@ -114,11 +126,12 @@ app.get("/make-server-1fc434d6/sync/load", async (c) => {
 
     const prefix = `ffu_${userId}`;
 
-    const [corpus, errorBank, stuckPoints, learnedCollocations] = await kv.mget([
+    const [corpus, errorBank, stuckPoints, learnedCollocations, vocabCards] = await kv.mget([
       `${prefix}_corpus`,
       `${prefix}_errors`,
       `${prefix}_stuck`,
       `${prefix}_learned`,
+      `${prefix}_vocab`,
     ]);
 
     console.log(`Data loaded for user: ${userId}`);
@@ -128,6 +141,7 @@ app.get("/make-server-1fc434d6/sync/load", async (c) => {
       errorBank: errorBank || [],
       stuckPoints: stuckPoints || [],
       learnedCollocations: learnedCollocations || [],
+      vocabCards: vocabCards || [],
     });
   } catch (err) {
     console.log(`Error loading sync data: ${err}`);
@@ -183,6 +197,7 @@ app.get("/make-server-1fc434d6/speech/token", async (c) => {
 async function callDeepSeek(
   messages: Array<{ role: string; content: string }>,
   temperature = 0.3,
+  maxTokens = 1024,
 ): Promise<string> {
   const apiKey = Deno.env.get("DEEPSEEK_API_KEY");
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY not configured on server");
@@ -197,7 +212,7 @@ async function callDeepSeek(
       model: "deepseek-chat",
       messages,
       temperature,
-      max_tokens: 1024,
+      max_tokens: maxTokens,
     }),
   });
 
@@ -382,6 +397,42 @@ app.post("/make-server-1fc434d6/ai/evaluate-answer", async (c) => {
   }
 });
 
+// Short English sentence → natural Chinese (for corpus UI)
+const translateSentenceHandler = async (c: any) => {
+  try {
+    const body = await c.req.json();
+    const text = String(body.text || "").trim();
+    if (!text || text.length > 800) {
+      return c.json({ error: "text required, max 800 chars" }, 400);
+    }
+
+    const result = await callDeepSeek(
+      [
+        {
+          role: "system",
+          content:
+            "You translate English sentences to concise natural Chinese for language learners. Output ONLY the Chinese translation: no quotes, no English, no notes, no markdown.",
+        },
+        { role: "user", content: text },
+      ],
+      0.2,
+      384,
+    );
+
+    const translation = (result || "").trim().replace(/^["「]|["」]$/g, "");
+    if (!translation) {
+      return c.json({ error: "Empty translation" }, 500);
+    }
+    return c.json({ translation });
+  } catch (err) {
+    console.log(`Error in translate-sentence: ${err}`);
+    return c.json({ error: `Translation failed: ${err}` }, 500);
+  }
+};
+
+app.post("/make-server-1fc434d6/ai/translate-sentence", translateSentenceHandler);
+app.post("/ai/translate-sentence", translateSentenceHandler);
+
 // Chinglish detection: grammatically correct but non-native; return native version + thinking
 app.post("/make-server-1fc434d6/ai/chinglish-check", async (c) => {
   try {
@@ -421,6 +472,112 @@ app.post("/make-server-1fc434d6/ai/chinglish-check", async (c) => {
     return c.json({ isChinglish: false });
   }
 });
+
+// Word Lab: generate IELTS-style sentences for a headword using sampled questions + collocation whitelist
+const vocabCardHandler = async (c: any) => {
+  try {
+    const body = await c.req.json();
+    const headword = String(body.headword || "").trim();
+    const sense = String(body.sense || "").trim();
+    const questions = Array.isArray(body.questions) ? body.questions : [];
+    const collocations = Array.isArray(body.collocations) ? body.collocations : [];
+
+    if (!headword) {
+      return c.json({ error: "headword is required" }, 400);
+    }
+    if (questions.length < 1) {
+      return c.json({ error: "questions array is required" }, 400);
+    }
+    if (collocations.length < 1) {
+      return c.json({ error: "collocations array is required" }, 400);
+    }
+
+    const qLines = questions.slice(0, 10).map((q: any) =>
+      `- id: ${q.id} | Part ${q.part} | ${q.topic} | ${q.question}`
+    ).join("\n");
+
+    const colLines = collocations.slice(0, 35).map((x: any) =>
+      typeof x === "string" ? `- ${x}` : `- ${x.phrase || x} (${x.meaning || ""}) [verb: ${x.verb || ""}]`
+    ).join("\n");
+
+    const systemPrompt =
+      "You are an IELTS speaking coach. The learner provides ONE English headword (or short phrase) to practice.\n\n" +
+      "TASK: For EACH IELTS-style question listed below, write ONE natural spoken-style English sentence that:\n" +
+      "1) could work as part of an answer to that specific question,\n" +
+      "2) naturally uses the headword \"" + headword + "\"" +
+      (sense ? " in this sense: " + sense : "") + ",\n" +
+      "3) uses AT LEAST ONE collocation from the whitelist below (verbatim phrase as written, e.g. \"get started\", \"make sense\").\n\n" +
+      "QUESTIONS (use exact id values in output):\n" + qLines + "\n\n" +
+      "COLLOCATION WHITELIST (only use phrases from this list):\n" + colLines + "\n\n" +
+      "Respond ONLY with valid JSON (no markdown, no code fences):\n" +
+      "{\n" +
+      "  \"items\": [\n" +
+      "    {\n" +
+      "      \"questionId\": \"must match one id from the list\",\n" +
+      "      \"sentence\": \"English sentence\",\n" +
+      "      \"collocationsUsed\": [\"phrase from whitelist used in sentence\"],\n" +
+      "      \"chinese\": \"该句中文释义\"\n" +
+      "    }\n" +
+      "  ]\n" +
+      "}\n\n" +
+      "Rules:\n" +
+      "- Produce exactly one item per question in the list (same count, same order as questions).\n" +
+      "- collocationsUsed must be non-empty; phrases must appear in the sentence as natural English.\n" +
+      "- Do NOT include any \"tags\" field; the app will tag by question scenario on the client.\n" +
+      "- Keep sentences suitable for speaking (not overly formal).";
+
+    const userContent = "Headword: \"" + headword + "\"" +
+      (sense ? "\nSense note: " + sense : "") +
+      "\nGenerate JSON as specified.";
+
+    const result = await callDeepSeek(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+      0.35,
+      2048,
+    );
+
+    let parsed: { items?: any[] };
+    try {
+      const jsonMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, result];
+      parsed = JSON.parse(jsonMatch[1].trim());
+    } catch {
+      console.log(`Failed to parse vocab-card response: ${result.slice(0, 500)}`);
+      return c.json({ error: "Failed to parse AI response" }, 500);
+    }
+
+    const validIds = new Set(questions.map((q: any) => String(q.id)));
+    const items = (parsed.items || []).filter((it: any) =>
+      it && validIds.has(String(it.questionId)) && String(it.sentence || "").trim()
+    );
+
+    if (items.length === 0) {
+      return c.json({ error: "AI returned no valid items" }, 500);
+    }
+
+    return c.json({
+      headword,
+      sense: sense || undefined,
+      items: items.map((it: any) => ({
+        questionId: String(it.questionId),
+        sentence: String(it.sentence).trim(),
+        collocationsUsed: Array.isArray(it.collocationsUsed)
+          ? it.collocationsUsed.map((x: any) => String(x))
+          : [],
+        chinese: String(it.chinese || "").trim() || undefined,
+      })),
+    });
+  } catch (err) {
+    console.log(`Error in vocab-card: ${err}`);
+    return c.json({ error: `Vocab card generation failed: ${err}` }, 500);
+  }
+};
+
+app.post("/make-server-1fc434d6/ai/vocab-card", vocabCardHandler);
+// 部分网关只把 `/ai/...` 传给函数体，注册别名避免 404
+app.post("/ai/vocab-card", vocabCardHandler);
 
 Deno.serve(app.fetch);
 

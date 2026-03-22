@@ -1,7 +1,8 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Search, CheckCircle2, Circle, ChevronRight, BookOpen, TrendingUp, Layers, Languages } from 'lucide-react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { Search, CheckCircle2, Circle, ChevronRight, BookOpen, TrendingUp, Layers, Languages, ArrowLeft } from 'lucide-react';
 import { VERBS, Verb, Collocation } from '../data/verbData';
 import { useStore } from '../store/StoreContext';
+import { diverseDailyExamples } from '../utils/collocationExamples';
 
 const STORAGE_KEY_SHOW_TRANSLATION = 'elis_foundry_show_translation';
 function getStoredShowTranslation(): boolean {
@@ -18,6 +19,23 @@ const DAILY_VERBS: Verb[] = VERBS.map(v => ({
   collocations: v.collocations.filter((c: Collocation) => c.usage !== 'written'),
 })).filter(v => v.collocations.length > 0) as Verb[];
 
+function useIsLg() {
+  const [isLg, setIsLg] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const on = () => setIsLg(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return isLg;
+}
+
+/** 小屏：先选动词 → 再左搭配右例句；大屏保持三栏 */
+type MobileFoundryPhase = 'pickVerb' | 'verbDetail';
+
 export function FoundryPage() {
   const store = useStore();
   const firstVerbId = DAILY_VERBS[0]?.id ?? VERBS[0].id;
@@ -26,6 +44,12 @@ export function FoundryPage() {
   const [search, setSearch] = useState('');
   const [showTranslationGlobal, setShowTranslationGlobal] = useState(getStoredShowTranslation);
   const [clickedExampleKey, setClickedExampleKey] = useState<string | null>(null);
+  const isLg = useIsLg();
+  const [mobilePhase, setMobilePhase] = useState<MobileFoundryPhase>('pickVerb');
+
+  useEffect(() => {
+    if (isLg) setMobilePhase('pickVerb');
+  }, [isLg]);
 
   const toggleTranslation = useCallback(() => {
     const next = !showTranslationGlobal;
@@ -72,6 +96,21 @@ export function FoundryPage() {
     setClickedExampleKey(null);
   }, []);
 
+  const enterMobileVerbDetail = useCallback((verbId: string) => {
+    const v = DAILY_VERBS.find(x => x.id === verbId);
+    setSelectedVerbId(verbId);
+    setClickedExampleKey(null);
+    const first = v?.collocations[0] ?? null;
+    setSelectedCollocation(first);
+    setMobilePhase('verbDetail');
+  }, []);
+
+  const backToMobileVerbList = useCallback(() => {
+    setMobilePhase('pickVerb');
+    setSelectedCollocation(null);
+    setClickedExampleKey(null);
+  }, []);
+
   const highlightPhrase = (content: string, phrase: string) => {
     // Escape special regex chars in the phrase
     const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -83,11 +122,174 @@ export function FoundryPage() {
     );
   };
 
+  const collocationList = (
+    <>
+      {selectedVerb.collocations.map(col => {
+        const isLearned = store.learnedCollocations.has(col.id);
+        const isSelected = selectedCollocation?.id === col.id;
+        return (
+          <div
+            key={col.id}
+            onClick={() => handleSelectCollocation(col)}
+            className={`rounded-xl p-3.5 cursor-pointer transition-all border ${
+              isSelected
+                ? 'bg-white border-indigo-300 shadow-sm'
+                : 'bg-white border-transparent hover:border-gray-200 hover:shadow-sm'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className={`font-semibold text-sm ${isSelected ? 'text-indigo-700' : 'text-gray-800'}`}>
+                  {col.phrase}
+                </div>
+                <div className="text-gray-500 text-xs mt-0.5">{col.meaning}</div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                {isSelected && <ChevronRight size={14} className="text-indigo-400 hidden lg:block" />}
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); handleToggleLearned(col.id); }}
+                  className="shrink-0 touch-manipulation"
+                >
+                  {isLearned
+                    ? <CheckCircle2 size={18} className="text-emerald-500" />
+                    : <Circle size={18} className="text-gray-300 hover:text-indigo-400 transition-colors" />
+                  }
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+
+  const examplesPanel = selectedCollocation ? (() => {
+    const dailyExamples = diverseDailyExamples(selectedCollocation.examples);
+    return (
+      <div className="space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <h2 className="text-lg lg:text-xl font-bold text-gray-900">{selectedCollocation.phrase}</h2>
+              <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full">
+                {selectedVerb.verb}
+              </span>
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <Layers size={12} />
+                {dailyExamples.length} 句
+              </span>
+            </div>
+            <p className="text-gray-500 text-sm">{selectedCollocation.meaning}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleToggleLearned(selectedCollocation.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all shrink-0 self-start ${
+              store.learnedCollocations.has(selectedCollocation.id)
+                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                : 'bg-indigo-600 text-white hover:bg-indigo-700'
+            }`}
+          >
+            {store.learnedCollocations.has(selectedCollocation.id) ? (
+              <><CheckCircle2 size={15} /> 已标记学习</>
+            ) : (
+              <><Circle size={15} /> 标记为已学</>
+            )}
+          </button>
+        </div>
+
+        <div>
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">
+              母语者日常例句
+            </span>
+            <button
+              type="button"
+              onClick={toggleTranslation}
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                showTranslationGlobal
+                  ? 'bg-indigo-100 border-indigo-300 text-indigo-700'
+                  : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <Languages size={12} />
+              {showTranslationGlobal ? '隐藏中文' : '显示中文'}
+            </button>
+            <div className="flex-1 h-px bg-gray-100 min-w-[40px]" />
+          </div>
+          <p className="text-gray-400 text-xs mb-2">
+            {showTranslationGlobal ? '已开启：所有例句显示中文' : '已关闭：点击英文例句可单独显示该句中文'}
+          </p>
+          <div className="space-y-2.5">
+            {dailyExamples.map((ex, i) => {
+              const exKey = `${selectedCollocation.id}-${i}`;
+              const showChinese = showTranslationGlobal || clickedExampleKey === exKey;
+              return (
+                <div
+                  key={i}
+                  role={showTranslationGlobal ? undefined : 'button'}
+                  tabIndex={showTranslationGlobal ? undefined : 0}
+                  onClick={() => {
+                    if (!showTranslationGlobal) {
+                      setClickedExampleKey(k => (k === exKey ? null : exKey));
+                    }
+                  }}
+                  onKeyDown={e => {
+                    if (!showTranslationGlobal && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      setClickedExampleKey(k => (k === exKey ? null : exKey));
+                    }
+                  }}
+                  className="rounded-xl p-4 border border-blue-200 bg-blue-50/50 hover:shadow-sm transition-all cursor-pointer"
+                >
+                  <p className="text-gray-800 text-sm leading-relaxed">
+                    {highlightPhrase(ex.content, selectedCollocation.phrase)}
+                  </p>
+                  {showChinese && (
+                    <p className="text-gray-500 text-sm mt-2 pt-2 border-t border-blue-100">
+                      {ex.chinese ?? '（暂无翻译）'}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+            {dailyExamples.length === 0 && (
+              <div className="text-center py-8 text-gray-400 text-sm">
+                暂无日常口语例句
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  })() : (
+    <div className="flex flex-col items-center justify-center min-h-[30vh] lg:min-h-0 lg:h-full text-center py-8 lg:py-0 px-2">
+      <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mb-4">
+        <BookOpen size={28} className="text-indigo-500" />
+      </div>
+      <h3 className="text-gray-700 font-semibold mb-2">选择一个搭配</h3>
+      <p className="text-gray-400 text-sm max-w-xs">
+        从左侧选择搭配，查看母语者日常例句（仅保留口语搭配，已剔除书面语），学完后标记为已学习
+      </p>
+      <div className="mt-4 flex gap-2 text-xs text-gray-400">
+        <TrendingUp size={14} />
+        <span>已学 {verbLearnedCount}/{selectedVerb.collocations.length} 个搭配</span>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* Verb List Sidebar */}
-      <div className="w-56 bg-white border-r border-gray-100 flex flex-col">
-        <div className="p-4 border-b border-gray-100">
+    <div className="flex flex-col lg:flex-row h-full min-h-0 overflow-hidden">
+      {/* Verb List Sidebar — 小屏仅在「选动词」阶段全屏显示 */}
+      <div
+        className={`w-full lg:w-56 shrink-0 bg-white border-b lg:border-b-0 lg:border-r border-gray-100 flex flex-col min-h-0 lg:max-h-none
+          ${!isLg && mobilePhase === 'verbDetail' ? 'hidden' : 'flex'}
+          ${!isLg && mobilePhase === 'pickVerb' ? 'flex-1 min-h-0' : ''}
+          max-lg:max-h-none
+        `}
+      >
+        <div className="p-4 border-b border-gray-100 shrink-0">
           <h2 className="font-bold text-gray-800 text-sm mb-3">资产区 · 动词库</h2>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -99,15 +301,24 @@ export function FoundryPage() {
             />
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {filteredVerbs.map(verb => {
             const isSelected = verb.id === selectedVerbId;
             const pct = Math.round((verb.learnedCount / verb.collocations.length) * 100);
             return (
               <button
                 key={verb.id}
-                onClick={() => { setSelectedVerbId(verb.id); setSelectedCollocation(null); setClickedExampleKey(null); }}
-                className={`w-full px-4 py-3 text-left border-b border-gray-50 transition-colors ${
+                type="button"
+                onClick={() => {
+                  if (isLg) {
+                    setSelectedVerbId(verb.id);
+                    setSelectedCollocation(null);
+                    setClickedExampleKey(null);
+                  } else {
+                    enterMobileVerbDetail(verb.id);
+                  }
+                }}
+                className={`w-full px-4 py-3 text-left border-b border-gray-50 transition-colors touch-manipulation ${
                   isSelected ? 'bg-indigo-50 border-l-2 border-l-indigo-500' : 'hover:bg-gray-50'
                 }`}
               >
@@ -136,22 +347,49 @@ export function FoundryPage() {
         </div>
       </div>
 
-      {/* Collocation Grid */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Verb Header */}
-        <div className="bg-white border-b border-gray-100 px-6 py-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-gray-900">{selectedVerb.verb}</h1>
-                <span className="text-gray-400 text-lg">/</span>
-                <span className="text-gray-500 text-base">{selectedVerb.meaning}</span>
+      {/* 搭配 + 例句：小屏「选动词」阶段隐藏；进入动词后左搭配右例句 */}
+      <div
+        className={`flex-1 flex flex-col min-h-0 min-w-0 lg:overflow-hidden
+          ${!isLg && mobilePhase === 'pickVerb' ? 'hidden' : 'flex'}
+          ${!isLg && mobilePhase === 'verbDetail' ? 'overflow-hidden' : 'overflow-y-auto'}
+        `}
+      >
+        {!isLg && mobilePhase === 'verbDetail' && (
+          <div className="lg:hidden shrink-0 flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 bg-white">
+            <button
+              type="button"
+              onClick={backToMobileVerbList}
+              className="flex items-center gap-1 text-sm font-medium text-indigo-600 py-2 px-2 -ml-1 rounded-lg hover:bg-indigo-50 touch-manipulation shrink-0"
+            >
+              <ArrowLeft size={20} />
+              选动词
+            </button>
+            <span className="text-gray-200 shrink-0">|</span>
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold text-gray-900 text-sm truncate">{selectedVerb.verb}</div>
+              <div className="text-[11px] text-gray-500 truncate">{selectedVerb.meaning}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Verb Header — 大屏三栏；小屏第二屏用顶栏代替 */}
+        <div
+          className={`bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4 shrink-0 ${
+            !isLg && mobilePhase === 'verbDetail' ? 'hidden' : ''
+          }`}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{selectedVerb.verb}</h1>
+                <span className="text-gray-400 text-lg shrink-0" aria-hidden>/</span>
+                <span className="text-gray-500 text-sm sm:text-base">{selectedVerb.meaning}</span>
               </div>
               <p className="text-gray-400 text-sm mt-1">
                 共 {selectedVerb.collocations.length} 个搭配 · 已学 {verbLearnedCount} 个
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 self-end sm:self-auto">
               <div className="text-right">
                 <div className={`text-lg font-bold ${verbPercent === 100 ? 'text-emerald-600' : 'text-indigo-600'}`}>
                   {verbPercent}%
@@ -175,162 +413,31 @@ export function FoundryPage() {
           </div>
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
-          {/* Collocation list */}
-          <div className="w-72 border-r border-gray-100 overflow-y-auto bg-gray-50 p-4 space-y-2">
-            {selectedVerb.collocations.map(col => {
-              const isLearned = store.learnedCollocations.has(col.id);
-              const isSelected = selectedCollocation?.id === col.id;
-              return (
-                <div
-                  key={col.id}
-                  onClick={() => handleSelectCollocation(col)}
-                  className={`rounded-xl p-3.5 cursor-pointer transition-all border ${
-                    isSelected
-                      ? 'bg-white border-indigo-300 shadow-sm'
-                      : 'bg-white border-transparent hover:border-gray-200 hover:shadow-sm'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      <div className={`font-semibold text-sm ${isSelected ? 'text-indigo-700' : 'text-gray-800'}`}>
-                        {col.phrase}
-                      </div>
-                      <div className="text-gray-500 text-xs mt-0.5">{col.meaning}</div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {isSelected && <ChevronRight size={14} className="text-indigo-400" />}
-                      <button
-                        onClick={e => { e.stopPropagation(); handleToggleLearned(col.id); }}
-                        className="shrink-0"
-                      >
-                        {isLearned
-                          ? <CheckCircle2 size={18} className="text-emerald-500" />
-                          : <Circle size={18} className="text-gray-300 hover:text-indigo-400 transition-colors" />
-                        }
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Example sentences: 仅展示母语者日常例句 */}
-          <div className="flex-1 overflow-y-auto p-6">
-            {selectedCollocation ? (() => {
-              const dailyExamples = selectedCollocation.examples.filter(ex => ex.scenario === 'daily');
-              return (
-                <div className="space-y-5">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h2 className="text-xl font-bold text-gray-900">{selectedCollocation.phrase}</h2>
-                        <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full">
-                          {selectedVerb.verb}
-                        </span>
-                        <span className="text-xs text-gray-400 flex items-center gap-1">
-                          <Layers size={12} />
-                          {dailyExamples.length} 句
-                        </span>
-                      </div>
-                      <p className="text-gray-500 text-sm">{selectedCollocation.meaning}</p>
-                    </div>
-                    <button
-                      onClick={() => handleToggleLearned(selectedCollocation.id)}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all shrink-0 ${
-                        store.learnedCollocations.has(selectedCollocation.id)
-                          ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                          : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                      }`}
-                    >
-                      {store.learnedCollocations.has(selectedCollocation.id) ? (
-                        <><CheckCircle2 size={15} /> 已标记学习</>
-                      ) : (
-                        <><Circle size={15} /> 标记为已学</>
-                      )}
-                    </button>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center gap-2 mb-3 flex-wrap">
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">
-                        母语者日常例句
-                      </span>
-                      <button
-                        type="button"
-                        onClick={toggleTranslation}
-                        className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                          showTranslationGlobal
-                            ? 'bg-indigo-100 border-indigo-300 text-indigo-700'
-                            : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        <Languages size={12} />
-                        {showTranslationGlobal ? '隐藏中文' : '显示中文'}
-                      </button>
-                      <div className="flex-1 h-px bg-gray-100 min-w-[40px]" />
-                    </div>
-                    <p className="text-gray-400 text-xs mb-2">
-                      {showTranslationGlobal ? '已开启：所有例句显示中文' : '已关闭：点击英文例句可单独显示该句中文'}
-                    </p>
-                    <div className="space-y-2.5">
-                      {dailyExamples.map((ex, i) => {
-                        const exKey = `${selectedCollocation.id}-${i}`;
-                        const showChinese = showTranslationGlobal || clickedExampleKey === exKey;
-                        return (
-                          <div
-                            key={i}
-                            role={showTranslationGlobal ? undefined : 'button'}
-                            tabIndex={showTranslationGlobal ? undefined : 0}
-                            onClick={() => {
-                              if (!showTranslationGlobal) {
-                                setClickedExampleKey(k => (k === exKey ? null : exKey));
-                              }
-                            }}
-                            onKeyDown={e => {
-                              if (!showTranslationGlobal && (e.key === 'Enter' || e.key === ' ')) {
-                                e.preventDefault();
-                                setClickedExampleKey(k => (k === exKey ? null : exKey));
-                              }
-                            }}
-                            className="rounded-xl p-4 border border-blue-200 bg-blue-50/50 hover:shadow-sm transition-all cursor-pointer"
-                          >
-                            <p className="text-gray-800 text-sm leading-relaxed">
-                              {highlightPhrase(ex.content, selectedCollocation.phrase)}
-                            </p>
-                            {showChinese && (
-                              <p className="text-gray-500 text-sm mt-2 pt-2 border-t border-blue-100">
-                                {ex.chinese ?? '（暂无翻译）'}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {dailyExamples.length === 0 && (
-                        <div className="text-center py-8 text-gray-400 text-sm">
-                          暂无日常口语例句
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })() : (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mb-4">
-                  <BookOpen size={28} className="text-indigo-500" />
-                </div>
-                <h3 className="text-gray-700 font-semibold mb-2">选择一个搭配</h3>
-                <p className="text-gray-400 text-sm max-w-xs">
-                  从左侧选择搭配，查看母语者日常例句（仅保留口语搭配，已剔除书面语），学完后标记为已学习
-                </p>
-                <div className="mt-4 flex gap-2 text-xs text-gray-400">
-                  <TrendingUp size={14} />
-                  <span>已学 {verbLearnedCount}/{selectedVerb.collocations.length} 个搭配</span>
-                </div>
+        <div
+          className={`flex flex-1 min-h-0 overflow-hidden lg:flex-row ${
+            !isLg && mobilePhase === 'verbDetail' ? 'flex-row' : 'flex-col'
+          }`}
+        >
+          <div
+            className={`shrink-0 border-gray-100 bg-gray-50 space-y-2 border-b lg:border-b-0 lg:border-r p-3 sm:p-4
+              w-full lg:w-72 lg:min-h-0 lg:overflow-y-auto
+              ${!isLg && mobilePhase === 'verbDetail' ? 'w-[42%] max-w-[12rem] min-w-0 border-b-0 border-r overflow-y-auto py-2 px-2' : ''}
+            `}
+          >
+            {!isLg && mobilePhase === 'verbDetail' && (
+              <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide px-1 pb-1 lg:hidden">
+                搭配
               </div>
             )}
+            {collocationList}
+          </div>
+
+          <div
+            className={`min-w-0 overflow-y-auto p-4 sm:p-6 pb-safe lg:pb-6 lg:flex-1 lg:min-h-0
+              ${!isLg && mobilePhase === 'verbDetail' ? 'flex-1 min-h-0' : 'flex-none w-full'}
+            `}
+          >
+            {examplesPanel}
           </div>
         </div>
       </div>

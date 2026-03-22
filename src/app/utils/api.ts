@@ -66,6 +66,7 @@ export async function syncSave(
     errorBank: any[];
     stuckPoints: any[];
     learnedCollocations: string[];
+    vocabCards?: any[];
   }
 ): Promise<{ success: boolean; timestamp: string }> {
   const token = await getValidAccessToken();
@@ -103,6 +104,7 @@ export async function syncLoad(_accessToken: string): Promise<{
   errorBank: any[];
   stuckPoints: any[];
   learnedCollocations: string[];
+  vocabCards?: any[];
 }> {
   const token = await getValidAccessToken();
 
@@ -194,6 +196,21 @@ export async function aiGrammarTutor(payload: {
 }
 
 /** 检测语法正确但为中式英语的句子，返回母语者版本与思路 */
+/** 将英文例句译为自然中文（个人语料库等） */
+export async function aiTranslateSentence(text: string): Promise<{ translation: string }> {
+  const resp = await fetch(`${BASE_URL}/ai/translate-sentence`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ text }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    console.error('AI translate-sentence error:', err);
+    throw new Error(err.error || 'Translation failed');
+  }
+  return resp.json();
+}
+
 export async function aiChinglishCheck(sentence: string, collocation: string): Promise<{
   isChinglish: boolean;
   nativeVersion?: string;
@@ -251,6 +268,46 @@ export async function aiEvaluateAnswer(
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
     console.error('AI evaluate error:', err);
     throw new Error(err.error || 'Evaluation failed');
+  }
+  return resp.json();
+}
+
+/** 词卡工坊：按雅思题 + 搭配白名单生成单词多题例句 */
+export async function aiGenerateVocabCard(payload: {
+  headword: string;
+  sense?: string;
+  questions: Array<{ id: string; part: number; topic: string; question: string }>;
+  collocations: Array<{ phrase: string; meaning: string; verb: string }>;
+}): Promise<{
+  headword: string;
+  sense?: string;
+  items: Array<{
+    questionId: string;
+    sentence: string;
+    collocationsUsed: string[];
+    chinese?: string;
+  }>;
+}> {
+  const resp = await fetch(`${BASE_URL}/ai/vocab-card`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const raw = await resp.text().catch(() => '');
+    let err: { error?: string } = {};
+    try {
+      err = raw ? JSON.parse(raw) : {};
+    } catch {
+      err = { error: raw || resp.statusText };
+    }
+    console.error('AI vocab-card error:', { status: resp.status, err, raw: raw?.slice?.(0, 200) });
+    if (resp.status === 404) {
+      throw new Error(
+        '词卡接口 404：云端尚未部署最新 Edge 函数。请在项目根目录执行：npx supabase login && npx supabase functions deploy make-server-1fc434d6 --project-ref 你的项目 ref'
+      );
+    }
+    throw new Error(err.error || raw || 'Vocab card generation failed');
   }
   return resp.json();
 }

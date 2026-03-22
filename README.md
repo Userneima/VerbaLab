@@ -29,4 +29,15 @@ powershell -ExecutionPolicy Bypass -File open-elis.ps1 -InstallShortcut
 
 
 （`.env.example` 文件提供默认值，复制为 `.env` 并根据需要修改即可。）
+
+### Supabase Edge 函数（词卡工坊 / 同步等）
+
+前端会请求 `https://<project>.supabase.co/functions/v1/make-server-1fc434d6/...`。若**词卡工坊**报 **404**，说明线上函数仍是旧版本，需要重新部署：
+
+```bash
+npx supabase login
+npx supabase functions deploy make-server-1fc434d6 --project-ref <你的 Supabase Project ID>
+```
+
+`Project ID` 与 `utils/supabase/info.tsx` 里的 `VITE_SUPABASE_PROJECT_ID` 一致。部署后需在 Supabase 项目环境变量中配置 `DEEPSEEK_API_KEY`（以及语音等已有变量）。
   

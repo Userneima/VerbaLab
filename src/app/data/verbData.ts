@@ -878,7 +878,7 @@ export const VERBS: Verb[] = [
       ]},
       { id: 'C120', phrase: 'see the result', meaning: '看到结果', examples: [
         { scenario: 'daily', content: 'After weeks of effort, I finally started to see the result.', chinese: '经过几周的努力，我终于开始看到结果。' },
-        { scenario: 'daily', content: 'I finally started to see the result, After weeks of effort.', chinese: '经过几周的努力，我终于开始看到结果。' },
+        { scenario: 'daily', content: 'You won\'t see the result overnight—it takes steady practice.', chinese: '不可能一夜就看到成果，需要持续练习。' },
         { scenario: 'zju', content: 'It\'s motivating to see the result of your hard work in your final grade.', chinese: '在期末成绩中看到你努力学习的结果是令人鼓舞的。' },
         { scenario: 'design', content: 'We were excited to see the result of the usability improvements in the data.', chinese: '我们很高兴看到数据可用性改进的结果。' }
       ]},
@@ -1096,7 +1096,7 @@ export const VERBS: Verb[] = [
       ]},
       { id: 'C153', phrase: 'tell the truth', meaning: '说实话', examples: [
         { scenario: 'daily', content: 'It\'s always better to tell the truth, even when it\'s uncomfortable.', chinese: '说实话总是更好的选择，即使这让人感到不舒服。' },
-        { scenario: 'daily', content: 'even when it\'s uncomfortable, It\'s always better to tell the truth.', chinese: '即使不舒服，说实话总是更好。' },
+        { scenario: 'daily', content: 'I had to tell the truth at the meeting—I couldn\'t cover for my colleague.', chinese: '在会上我只能说实话——没法再替同事打掩护了。' },
         { scenario: 'zju', content: 'In academic writing, tell the truth about your findings—even if they\'re not what you expected.', chinese: '在学术写作中，要真实地讲述你的发现——即使它们不是你所期望的。' },
         { scenario: 'design', content: 'Good user testing tells the truth about how people actually use a product.', chinese: '良好的用户测试可以揭示人们实际如何使用产品的真相。' }
       ]},
