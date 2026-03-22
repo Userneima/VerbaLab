@@ -1,4 +1,7 @@
 node_modules
+
+# Supabase CLI 本地缓存（勿提交）
+supabase/.temp/
 scripts/.verbdata-translation-cache.json
 .env
 *.local
