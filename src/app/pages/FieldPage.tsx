@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Zap, AlertTriangle, Send, RefreshCw, Loader2, HelpCircle, X, ChevronRight, CheckCircle2, MessageSquare, Mic, MicOff } from 'lucide-react';
 import { IELTS_QUESTIONS } from '../data/verbData';
 import { getStuckSuggestion } from '../utils/grammarCheck';
@@ -59,6 +59,7 @@ export function FieldPage() {
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [usedVoiceThisRound, setUsedVoiceThisRound] = useState(false);
   const [corpusPanelOpen, setCorpusPanelOpen] = useState(false);
+  const answerInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Azure Speech recognition
   const speech = useSpeechRecognition();
@@ -138,6 +139,40 @@ export function FieldPage() {
     }
   }, [answer, question]);
 
+  const insertSpeechIntoAnswer = useCallback((text: string) => {
+    const spoken = text?.trim();
+    if (!spoken) return;
+    const el = answerInputRef.current;
+    const active = typeof document !== 'undefined' && el && document.activeElement === el;
+    if (!active || !el) {
+      setAnswer(prev => {
+        const separator = prev && !prev.endsWith(' ') ? ' ' : '';
+        return prev + separator + spoken;
+      });
+      return;
+    }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? start;
+    setAnswer(prev => {
+      const s = Math.max(0, Math.min(start, prev.length));
+      const e = Math.max(s, Math.min(end, prev.length));
+      const before = prev.slice(0, s);
+      const after = prev.slice(e);
+      const leftSpace = before && !/\s$/.test(before) ? ' ' : '';
+      const rightSpace = after && !/^\s/.test(after) ? ' ' : '';
+      const inserted = `${leftSpace}${spoken}${rightSpace}`;
+      const next = `${before}${inserted}${after}`;
+      const caret = before.length + inserted.length;
+      window.requestAnimationFrame(() => {
+        const node = answerInputRef.current;
+        if (!node) return;
+        node.focus();
+        node.setSelectionRange(caret, caret);
+      });
+      return next;
+    });
+  }, []);
+
   const handleToggleRecording = useCallback(() => {
     if (speech.isListening) {
       speech.stopListening();
@@ -145,13 +180,10 @@ export function FieldPage() {
       setUsedVoiceThisRound(true);
       speech.startListening((text) => {
         if (text?.trim()) setUsedVoiceThisRound(true);
-        setAnswer(prev => {
-          const separator = prev && !prev.endsWith(' ') ? ' ' : '';
-          return prev + separator + text;
-        });
+        insertSpeechIntoAnswer(text);
       }, 'en-US');
     }
-  }, [speech]);
+  }, [speech, insertSpeechIntoAnswer]);
 
   const partColors: Record<number, string> = {
     1: 'bg-green-100 text-green-700',
@@ -288,6 +320,7 @@ export function FieldPage() {
                   </div>
                 </div>
                 <textarea
+                  ref={answerInputRef}
                   value={answer}
                   onChange={e => setAnswer(e.target.value)}
                   placeholder="Type your answer here in English... Be natural and use core verbs like make, get, take, keep..."

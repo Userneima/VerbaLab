@@ -1,14 +1,18 @@
-/** 与「已浏览」对应的间隔（天），随 reviewStage 拉长 */
-export const REVIEW_INTERVAL_DAYS = [3, 7, 14] as const;
+import {
+  MS_PER_DAY,
+  VOCAB_REVIEW_INTERVAL_DAYS,
+  VOCAB_REVIEW_RESET_HOURS,
+  MS_PER_HOUR,
+} from './reviewConfig';
 
 function daysForStage(stage: number): number {
-  const s = Math.min(Math.max(stage, 0), REVIEW_INTERVAL_DAYS.length - 1);
-  return REVIEW_INTERVAL_DAYS[s];
+  const s = Math.min(Math.max(stage, 0), VOCAB_REVIEW_INTERVAL_DAYS.length - 1);
+  return VOCAB_REVIEW_INTERVAL_DAYS[s];
 }
 
 export function computeNextDueAfterView(stage: number): string {
   const days = daysForStage(stage);
-  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+  return new Date(Date.now() + days * MS_PER_DAY).toISOString();
 }
 
 /** 新卡片首次进入复习队列：默认 3 天后提醒 */
@@ -22,7 +26,7 @@ export function computeAfterRemembered(stage: number): { reviewStage: number; ne
   const days = daysForStage(reviewStage);
   return {
     reviewStage,
-    nextDueAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString(),
+    nextDueAt: new Date(Date.now() + days * MS_PER_DAY).toISOString(),
   };
 }
 
@@ -30,7 +34,7 @@ export function computeAfterRemembered(stage: number): { reviewStage: number; ne
 export function computeAfterStruggled(): { reviewStage: number; nextDueAt: string } {
   return {
     reviewStage: 0,
-    nextDueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    nextDueAt: new Date(Date.now() + VOCAB_REVIEW_RESET_HOURS * MS_PER_HOUR).toISOString(),
   };
 }
 

@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router';
-import { Library, Search, Filter, Download, TrendingUp, BookMarked, Sparkles, Languages, Loader2 } from 'lucide-react';
+import { Library, Search, Filter, Download, TrendingUp, BookMarked, Sparkles, Languages, Loader2, Trash2 } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { aiTranslateSentence } from '../utils/api';
 import { isVocabCardDue } from '../utils/vocabCardReview';
+import { corpusDuplicateGroupSizes, getCorpusDuplicateSummary } from '../utils/corpusDedupe';
+import { VirtualizedStack } from '../components/VirtualizedStack';
 
 type SortBy = 'newest' | 'oldest' | 'verb';
 type FilterVerb = 'all' | string;
@@ -30,6 +32,16 @@ export function CorpusPage() {
     const verbs = new Set(store.corpus.map(e => e.verb));
     return Array.from(verbs).sort();
   }, [store.corpus]);
+
+  const corpusDupSizesById = useMemo(
+    () => corpusDuplicateGroupSizes(store.corpus),
+    [store.corpus]
+  );
+
+  const corpusDupSummary = useMemo(
+    () => getCorpusDuplicateSummary(store.corpus),
+    [store.corpus]
+  );
 
   const filtered = useMemo(() => {
     let result = [...store.corpus];
@@ -162,7 +174,7 @@ export function CorpusPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'fluentflow-corpus.txt';
+    a.download = 'verbalab-corpus.txt';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -362,6 +374,18 @@ export function CorpusPage() {
                 </div>
               </div>
 
+              {corpusDupSummary.duplicateGroupCount > 0 && (
+                <div className="flex items-start gap-2 text-sm text-amber-900 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                  <span className="shrink-0 font-medium">重复检测</span>
+                  <span className="text-amber-800/90">
+                    同一搭配下实质相同的句子共{' '}
+                    <strong className="font-semibold text-amber-900">{corpusDupSummary.duplicateGroupCount}</strong> 组，若每组只保留一条可删去{' '}
+                    <strong className="font-semibold text-amber-900">{corpusDupSummary.redundantEntryCount}</strong>{' '}
+                    条。规则：忽略大小写、首尾空格与句末标点差异。
+                  </span>
+                </div>
+              )}
+
               {verbDist.length > 0 && (
                 <div className="bg-white border border-gray-100 rounded-xl p-5">
                   <div className="flex items-center gap-2 mb-4">
@@ -426,8 +450,12 @@ export function CorpusPage() {
                 <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{translateErr}</div>
               )}
 
-              <div className="space-y-3">
-                {filtered.map(entry => (
+              <VirtualizedStack
+                items={filtered}
+                estimateSize={168}
+                className="max-h-[68vh] overflow-y-auto pr-1"
+                empty={search ? <div className="text-center py-8 text-gray-400 text-sm">未找到匹配 "{search}" 的句子</div> : null}
+                renderItem={entry => (
                   <div
                     key={entry.id}
                     id={`corpus-sentence-${entry.id}`}
@@ -444,6 +472,11 @@ export function CorpusPage() {
                           </p>
                         )}
                         <div className="flex flex-wrap items-center gap-2">
+                          {(corpusDupSizesById.get(entry.id) ?? 1) > 1 && (
+                            <span className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full font-medium">
+                              实质重复 · 本组共 {corpusDupSizesById.get(entry.id)} 条
+                            </span>
+                          )}
                           <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-medium">
                             {entry.verb}
                           </span>
@@ -468,16 +501,37 @@ export function CorpusPage() {
                           </button>
                         </div>
                       </div>
-                      <div className="text-xs text-gray-400 shrink-0">
-                        {new Date(entry.timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                      <div className="flex flex-col items-end gap-2 shrink-0">
+                        <div className="text-xs text-gray-400">
+                          {new Date(entry.timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!confirm('确定删除这条语料句子？删除后无法恢复。')) return;
+                            store.removeCorpusEntry(entry.id);
+                            setZhById(prev => {
+                              const next = { ...prev };
+                              delete next[entry.id];
+                              return next;
+                            });
+                            setZhVisible(prev => {
+                              const next = { ...prev };
+                              delete next[entry.id];
+                              return next;
+                            });
+                            if (flashSentenceId === entry.id) setFlashSentenceId(null);
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-red-600 px-2 py-1 rounded-lg border border-red-100 hover:bg-red-50"
+                        >
+                          <Trash2 size={12} />
+                          删除
+                        </button>
                       </div>
                     </div>
                   </div>
-                ))}
-                {filtered.length === 0 && search && (
-                  <div className="text-center py-8 text-gray-400 text-sm">未找到匹配 "{search}" 的句子</div>
                 )}
-              </div>
+              />
             </>
           )}
         </div>

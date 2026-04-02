@@ -14,7 +14,6 @@ import {
   ArrowDownCircle,
   LogOut,
   User,
-  Target,
   LifeBuoy,
   Menu,
   X,
@@ -26,7 +25,8 @@ import type { AppStore } from '../store/useStore';
 import { useStore, StoreProvider } from '../store/StoreContext';
 import { AuthProvider, useAuth } from '../store/AuthContext';
 import { AuthPage } from '../pages/AuthPage';
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
+import { ErrorBoundary } from './ErrorBoundary';
 
 type NavItem = {
   to: string;
@@ -118,7 +118,7 @@ function LayoutInner() {
         >
           <Menu size={22} strokeWidth={2} />
         </button>
-        <span className="font-semibold text-white text-sm truncate flex-1 text-center">FluentFlow</span>
+        <span className="font-semibold text-white text-sm truncate flex-1 text-center">VerbaLab</span>
         <span className="w-11 shrink-0" aria-hidden />
       </header>
 
@@ -142,10 +142,10 @@ function LayoutInner() {
         <div className="p-4 md:p-6 border-b border-slate-700 shrink-0 flex items-start justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 bg-indigo-500 rounded-xl flex items-center justify-center shrink-0">
-              <span className="text-white font-bold text-sm">FF</span>
+              <span className="text-white font-bold text-sm">VL</span>
             </div>
             <div className="min-w-0">
-              <div className="text-white font-bold text-sm leading-tight">FluentFlow</div>
+              <div className="text-white font-bold text-sm leading-tight">VerbaLab</div>
               <div className="text-slate-400 text-xs">v2.0 · 动词驱动</div>
             </div>
           </div>
@@ -271,10 +271,19 @@ function LayoutInner() {
         <div className="p-4 border-t border-slate-700 space-y-2 shrink-0 bg-[#0f172a]">
           <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">学习进度</div>
           <div className="grid grid-cols-2 gap-2">
-            <NavLink to="/foundry" className={({ isActive }) => progressLinkClass(isActive)}>
-              <Target size={14} className="text-indigo-400 mb-0.5 opacity-90" />
-              <div className="text-indigo-400 font-bold text-lg leading-tight">{store.stats.totalLearned}</div>
-              <div className="text-slate-500 text-[11px] leading-tight mt-0.5">已学搭配</div>
+            <NavLink
+              to="/vocab-review"
+              className={({ isActive }) =>
+                progressLinkClass(
+                  isActive ||
+                    location.pathname.startsWith('/vocab/') ||
+                    location.pathname === '/word-lab'
+                )
+              }
+            >
+              <BookMarked size={14} className="text-violet-400 mb-0.5 opacity-90" />
+              <div className="text-violet-400 font-bold text-lg leading-tight">{store.stats.vocabCardCount}</div>
+              <div className="text-slate-500 text-[11px] leading-tight mt-0.5">词卡</div>
             </NavLink>
             <NavLink to="/corpus" className={({ isActive }) => progressLinkClass(isActive)}>
               <Library size={14} className="text-emerald-400 mb-0.5 opacity-90" />
@@ -341,7 +350,17 @@ function LayoutInner() {
       </aside>
 
       <main className="flex-1 overflow-hidden flex flex-col min-w-0 min-h-0 pb-safe md:pb-0">
-        <Outlet />
+        <ErrorBoundary>
+          <Suspense
+            fallback={
+              <div className="flex flex-1 min-h-[40vh] items-center justify-center text-slate-500 text-sm">
+                加载中…
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
+        </ErrorBoundary>
       </main>
     </div>
   );

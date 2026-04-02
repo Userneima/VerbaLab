@@ -47,9 +47,14 @@ export const mset = async (keys: string[], values: any[]): Promise<void> => {
 
 export const mget = async (keys: string[]): Promise<any[]> => {
   const supabase = client();
-  const { data, error } = await supabase.from("kv_store_1fc434d6").select("value").in("key", keys);
+  const { data, error } = await supabase
+    .from("kv_store_1fc434d6")
+    .select("key, value")
+    .in("key", keys);
   if (error) throw new Error(error.message);
-  return data?.map((d) => d.value) ?? [];
+  const byKey = new Map<string, any>((data || []).map((d: any) => [String(d.key), d.value]));
+  // Keep output aligned with requested key order.
+  return keys.map((k) => byKey.get(k));
 };
 
 export const mdel = async (keys: string[]): Promise<void> => {

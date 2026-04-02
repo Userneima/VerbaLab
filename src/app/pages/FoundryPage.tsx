@@ -1,8 +1,29 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { Search, CheckCircle2, Circle, ChevronRight, BookOpen, TrendingUp, Layers, Languages, ArrowLeft } from 'lucide-react';
-import { VERBS, Verb, Collocation } from '../data/verbData';
+import {
+  Search,
+  CheckCircle2,
+  Circle,
+  ChevronRight,
+  BookOpen,
+  TrendingUp,
+  Layers,
+  Languages,
+  ArrowLeft,
+  Plus,
+  Trash2,
+  RotateCcw,
+  PenLine,
+} from 'lucide-react';
+import { VERBS, Verb, Collocation, type ExampleSentence } from '../data/verbData';
 import { useStore } from '../store/StoreContext';
 import { diverseDailyExamples } from '../utils/collocationExamples';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 
 const STORAGE_KEY_SHOW_TRANSLATION = 'elis_foundry_show_translation';
 function getStoredShowTranslation(): boolean {
@@ -46,10 +67,15 @@ export function FoundryPage() {
   const [clickedExampleKey, setClickedExampleKey] = useState<string | null>(null);
   const isLg = useIsLg();
   const [mobilePhase, setMobilePhase] = useState<MobileFoundryPhase>('pickVerb');
+  const [foundryEditorModalOpen, setFoundryEditorModalOpen] = useState(false);
 
   useEffect(() => {
     if (isLg) setMobilePhase('pickVerb');
   }, [isLg]);
+
+  useEffect(() => {
+    setFoundryEditorModalOpen(false);
+  }, [selectedCollocation?.id]);
 
   const toggleTranslation = useCallback(() => {
     const next = !showTranslationGlobal;
@@ -111,6 +137,71 @@ export function FoundryPage() {
     setClickedExampleKey(null);
   }, []);
 
+  type FoundryEditorLine = { content: string; chinese: string };
+  const [foundryEditorLines, setFoundryEditorLines] = useState<FoundryEditorLine[]>([
+    { content: '', chinese: '' },
+  ]);
+
+  const foundryPackFingerprint = selectedCollocation
+    ? `${selectedCollocation.id}:${JSON.stringify(store.foundryExampleOverrides[selectedCollocation.id] ?? null)}`
+    : '';
+
+  useEffect(() => {
+    if (!selectedCollocation) return;
+    const p = store.foundryExampleOverrides[selectedCollocation.id];
+    if (p?.items?.length) {
+      setFoundryEditorLines(p.items.map(i => ({ content: i.content, chinese: i.chinese ?? '' })));
+    } else {
+      setFoundryEditorLines([{ content: '', chinese: '' }]);
+    }
+  }, [foundryPackFingerprint, selectedCollocation?.id]);
+
+  const displayFoundryExamples: ExampleSentence[] = useMemo(() => {
+    if (!selectedCollocation) return [];
+    const p = store.foundryExampleOverrides[selectedCollocation.id];
+    if (p?.items?.length) {
+      return p.items.map(ex => ({
+        scenario: 'daily' as const,
+        content: ex.content,
+        chinese: ex.chinese,
+      }));
+    }
+    return diverseDailyExamples(selectedCollocation.examples);
+  }, [selectedCollocation, foundryPackFingerprint]);
+
+  const usingCustomFoundryExamples =
+    !!selectedCollocation &&
+    (store.foundryExampleOverrides[selectedCollocation.id]?.items?.length ?? 0) > 0;
+
+  const saveFoundryExamples = () => {
+    if (!selectedCollocation) return;
+    store.setFoundryExamplesForCollocation(
+      selectedCollocation.id,
+      foundryEditorLines.map(({ content, chinese }) => ({
+        content: content.trim(),
+        chinese: chinese.trim() || undefined,
+      }))
+    );
+    setFoundryEditorModalOpen(false);
+  };
+
+  const fillFoundryEditorFromBuiltin = () => {
+    if (!selectedCollocation) return;
+    const daily = diverseDailyExamples(selectedCollocation.examples);
+    setFoundryEditorLines(
+      daily.length
+        ? daily.map(ex => ({ content: ex.content, chinese: ex.chinese ?? '' }))
+        : [{ content: '', chinese: '' }]
+    );
+  };
+
+  const restoreBuiltinFoundryExamples = () => {
+    if (!selectedCollocation) return;
+    if (!confirm('确定恢复为内置例句？当前自订内容将删除。')) return;
+    store.clearFoundryExamplesForCollocation(selectedCollocation.id);
+    setFoundryEditorLines([{ content: '', chinese: '' }]);
+  };
+
   const highlightPhrase = (content: string, phrase: string) => {
     // Escape special regex chars in the phrase
     const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -164,9 +255,7 @@ export function FoundryPage() {
     </>
   );
 
-  const examplesPanel = selectedCollocation ? (() => {
-    const dailyExamples = diverseDailyExamples(selectedCollocation.examples);
-    return (
+  const examplesPanel = selectedCollocation ? (
       <div className="space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div className="min-w-0">
@@ -177,7 +266,7 @@ export function FoundryPage() {
               </span>
               <span className="text-xs text-gray-400 flex items-center gap-1">
                 <Layers size={12} />
-                {dailyExamples.length} 句
+                {displayFoundryExamples.length} 句
               </span>
             </div>
             <p className="text-gray-500 text-sm">{selectedCollocation.meaning}</p>
@@ -199,10 +288,139 @@ export function FoundryPage() {
           </button>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 gap-y-2">
+          <button
+            type="button"
+            onClick={() => setFoundryEditorModalOpen(true)}
+            className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 transition-colors"
+          >
+            <PenLine size={16} className="shrink-0" />
+            编辑我的例句
+          </button>
+          {usingCustomFoundryExamples && (
+            <button
+              type="button"
+              onClick={restoreBuiltinFoundryExamples}
+              className="text-xs font-medium text-red-600 px-2 py-1.5 rounded-lg hover:bg-red-50"
+            >
+              恢复内置例句
+            </button>
+          )}
+          <span className="text-xs text-gray-400">在弹窗中收录、修改并保存</span>
+        </div>
+
+        <Dialog open={foundryEditorModalOpen} onOpenChange={setFoundryEditorModalOpen}>
+          <DialogContent className="flex max-h-[min(90vh,720px)] w-[calc(100%-1.5rem)] max-w-xl flex-col gap-0 overflow-hidden border-gray-200 bg-white p-0 sm:max-w-xl">
+            <DialogHeader className="shrink-0 space-y-1 border-b border-gray-100 px-5 pt-5 pb-3 pr-12 text-left">
+              <DialogTitle className="text-base text-gray-900">收录我喜欢的例句</DialogTitle>
+              <DialogDescription asChild>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  <span className="font-medium text-gray-600">{selectedCollocation.phrase}</span>
+                  {' · '}
+                  保存后替换下方展示；删光英文再保存即恢复内置。已登录且开启同步会随学习数据备份。
+                </p>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={fillFoundryEditorFromBuiltin}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50"
+                >
+                  <RotateCcw size={12} />
+                  填入内置口语例句
+                </button>
+                {usingCustomFoundryExamples && (
+                  <button
+                    type="button"
+                    onClick={restoreBuiltinFoundryExamples}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-red-600 px-2.5 py-1.5 rounded-lg border border-red-100 bg-white hover:bg-red-50"
+                  >
+                    恢复内置
+                  </button>
+                )}
+              </div>
+              <div className="space-y-3">
+                {foundryEditorLines.map((line, idx) => (
+                  <div key={idx} className="space-y-2 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">
+                        第 {idx + 1} 句
+                      </span>
+                      {foundryEditorLines.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFoundryEditorLines(prev => prev.filter((_, i) => i !== idx))
+                          }
+                          className="p-1 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50"
+                          aria-label="删除该行"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      value={line.content}
+                      onChange={e => {
+                        const v = e.target.value;
+                        setFoundryEditorLines(prev =>
+                          prev.map((row, i) => (i === idx ? { ...row, content: v } : row))
+                        );
+                      }}
+                      placeholder="英文句子（建议包含本搭配）"
+                      rows={2}
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400 font-sans bg-white"
+                    />
+                    <input
+                      type="text"
+                      value={line.chinese}
+                      onChange={e => {
+                        const v = e.target.value;
+                        setFoundryEditorLines(prev =>
+                          prev.map((row, i) => (i === idx ? { ...row, chinese: v } : row))
+                        );
+                      }}
+                      placeholder="中文翻译（可选）"
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400 bg-white"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="shrink-0 flex flex-wrap gap-2 border-t border-gray-100 bg-gray-50/90 px-5 py-4">
+              <button
+                type="button"
+                onClick={() =>
+                  setFoundryEditorLines(prev => [...prev, { content: '', chinese: '' }])
+                }
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-700 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+              >
+                <Plus size={14} />
+                添加一句
+              </button>
+              <button
+                type="button"
+                onClick={saveFoundryExamples}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-white px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700"
+              >
+                保存我的例句
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <div>
           <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">
-              母语者日常例句
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                usingCustomFoundryExamples
+                  ? 'bg-fuchsia-100 text-fuchsia-800'
+                  : 'bg-blue-100 text-blue-700'
+              }`}
+            >
+              {usingCustomFoundryExamples ? '当前展示 · 我的例句' : '当前展示 · 内置口语例句'}
             </span>
             <button
               type="button"
@@ -222,7 +440,7 @@ export function FoundryPage() {
             {showTranslationGlobal ? '已开启：所有例句显示中文' : '已关闭：点击英文例句可单独显示该句中文'}
           </p>
           <div className="space-y-2.5">
-            {dailyExamples.map((ex, i) => {
+            {displayFoundryExamples.map((ex, i) => {
               const exKey = `${selectedCollocation.id}-${i}`;
               const showChinese = showTranslationGlobal || clickedExampleKey === exKey;
               return (
@@ -254,23 +472,22 @@ export function FoundryPage() {
                 </div>
               );
             })}
-            {dailyExamples.length === 0 && (
+            {displayFoundryExamples.length === 0 && (
               <div className="text-center py-8 text-gray-400 text-sm">
-                暂无日常口语例句
+                暂无例句：点「编辑我的例句」添加并保存，或换一个有内置例句的搭配
               </div>
             )}
           </div>
         </div>
       </div>
-    );
-  })() : (
+    ) : (
     <div className="flex flex-col items-center justify-center min-h-[30vh] lg:min-h-0 lg:h-full text-center py-8 lg:py-0 px-2">
       <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mb-4">
         <BookOpen size={28} className="text-indigo-500" />
       </div>
       <h3 className="text-gray-700 font-semibold mb-2">选择一个搭配</h3>
       <p className="text-gray-400 text-sm max-w-xs">
-        从左侧选择搭配，查看母语者日常例句（仅保留口语搭配，已剔除书面语），学完后标记为已学习
+        从左侧选择搭配：可浏览内置口语例句，也可自订你喜欢的句子并保存；学完后标记为已学习
       </p>
       <div className="mt-4 flex gap-2 text-xs text-gray-400">
         <TrendingUp size={14} />

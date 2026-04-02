@@ -1,15 +1,23 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router';
-import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Library, ChevronRight, BookMarked } from 'lucide-react';
+import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Library, ChevronRight, BookMarked, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
 import { IELTS_QUESTIONS, getDailyCollocations } from '../data/verbData';
 import { aiGenerateVocabCard } from '../utils/api';
 import { scenarioTagsFromVocabItems } from '../utils/vocabCardScenarioTags';
 import { useStore } from '../store/StoreContext';
 import type { VocabCardItem } from '../store/useStore';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 
 /** 控制单次生成体量，避免 prompt 过大、等待过久 */
 const VOCAB_LAB_QUESTION_COUNT = 3;
-const VOCAB_LAB_COLLOCATION_COUNT = 28;
+const VOCAB_LAB_COLLOCATION_COUNT = 12;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -32,6 +40,11 @@ export function WordLabPage() {
     items: VocabCardItem[];
   } | null>(null);
   const [extraTags, setExtraTags] = useState('');
+  const [showGenerateTips, setShowGenerateTips] = useState(false);
+  const [senseHelpOpen, setSenseHelpOpen] = useState(false);
+  const [dupPromptOpen, setDupPromptOpen] = useState(false);
+  const [dupExistingCardId, setDupExistingCardId] = useState<string | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
 
   const recentVocabCards = useMemo(
     () => store.vocabCards.slice(0, 8),
@@ -96,7 +109,7 @@ export function WordLabPage() {
     }
   }, [headword, sense]);
 
-  const saveCard = useCallback(() => {
+  const saveCardDirect = useCallback(() => {
     if (!preview) return;
     const tags = [
       ...preview.tags,
@@ -112,6 +125,32 @@ export function WordLabPage() {
     navigate('/corpus?tab=cards');
   }, [preview, extraTags, headword, sense, store, navigate]);
 
+  const normalizeCardInput = useCallback((s: string) => s.trim().toLowerCase(), []);
+
+  useEffect(() => {
+    if (!previewRef.current) return;
+    const t = window.requestAnimationFrame(() => {
+      previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(t);
+  }, [preview]);
+
+  const saveCard = useCallback(() => {
+    if (!preview) return;
+    const hw = normalizeCardInput(headword);
+    const se = normalizeCardInput(sense);
+    const existing = store.vocabCards.find(c =>
+      normalizeCardInput(c.headword) === hw &&
+      normalizeCardInput(c.sense ?? '') === se
+    );
+    if (existing) {
+      setDupExistingCardId(existing.id);
+      setDupPromptOpen(true);
+      return;
+    }
+    saveCardDirect();
+  }, [preview, headword, sense, store.vocabCards, normalizeCardInput, saveCardDirect]);
+
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -125,15 +164,29 @@ export function WordLabPage() {
           </p>
         </div>
 
-        <div className="p-4 sm:p-6 pb-safe sm:pb-6 max-w-2xl space-y-5">
-          <div className="bg-violet-50 border border-violet-100 rounded-xl p-4 text-sm text-violet-900">
-            <div className="font-medium mb-1">每次生成</div>
-            <p className="text-violet-800/90 text-xs leading-relaxed">
-              每次随机抽取 {VOCAB_LAB_QUESTION_COUNT} 道雅思口语题与约 {VOCAB_LAB_COLLOCATION_COUNT} 条日常搭配作为白名单；模型为每道题写一句自然口语，并至少使用白名单中一个搭配。若结果不理想可点「重新生成」换一批题目与搭配。
-            </p>
-          </div>
+        <div
+          className={`p-4 sm:p-6 pb-safe sm:pb-6 max-w-6xl ${
+            preview ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:gap-5 lg:items-start' : ''
+          }`}
+        >
+          <div className={`space-y-5 ${preview ? '' : 'lg:max-w-2xl'}`}>
+            <div className="rounded-xl border border-violet-100 bg-violet-50/80">
+              <button
+                type="button"
+                onClick={() => setShowGenerateTips(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-violet-900 hover:bg-violet-100/60 rounded-xl transition-colors"
+              >
+                <span className="text-sm font-medium">生成规则说明</span>
+                {showGenerateTips ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              </button>
+              {showGenerateTips && (
+                <p className="px-4 pb-3 text-violet-800/90 text-xs leading-relaxed">
+                  当前使用 DeepSeek 生成口语优先短句：每次抽取 {VOCAB_LAB_QUESTION_COUNT} 道题和约 {VOCAB_LAB_COLLOCATION_COUNT} 条日常搭配作为约束，每题生成 1 句，并至少命中 1 个白名单搭配。若风格不满意可点「重新生成」换一批题目与搭配。
+                </p>
+              )}
+            </div>
 
-          <div>
+            <div>
             <label className="block text-sm font-medium text-gray-600 mb-1.5">目标词 / 短语（英文）</label>
             <input
               value={headword}
@@ -141,43 +194,54 @@ export function WordLabPage() {
               placeholder="e.g. resilience, make an impact"
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-violet-400"
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1.5">义项提示（可选，中文或英文）</label>
+            </div>
+            <div>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <label className="block text-sm font-medium text-gray-600">多义词约束（可选，中文或英文）</label>
+              <button
+                type="button"
+                onClick={() => setSenseHelpOpen(true)}
+                className="inline-flex items-center text-violet-600 hover:text-violet-700"
+                aria-label="查看多义词约束说明"
+                title="查看多义词约束说明"
+              >
+                <HelpCircle size={14} />
+              </button>
+            </div>
             <input
               value={sense}
               onChange={e => setSense(e.target.value)}
               placeholder="例如：心理韧性；或 which sense you want"
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-violet-400"
             />
-          </div>
+            </div>
 
-          {error && (
-            <div className="text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div>
-          )}
+            {error && (
+              <div className="text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div>
+            )}
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={runGenerate}
-              disabled={loading}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors"
-            >
-              {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              {loading ? '生成中…' : '生成语料卡片'}
-            </button>
-            {preview && (
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={runGenerate}
                 disabled={loading}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors"
               >
-                <RefreshCw size={16} />
-                重新生成
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                {loading ? '生成中…' : '生成语料卡片'}
               </button>
-            )}
-          </div>
+              {preview && (
+                <button
+                  type="button"
+                  onClick={runGenerate}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw size={16} />
+                  重新生成
+                </button>
+              )}
+            </div>
 
           <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-4 space-y-3">
             <Link
@@ -239,9 +303,13 @@ export function WordLabPage() {
               )}
             </div>
           </div>
+          </div>
 
           {preview && (
-            <div className="space-y-4 border border-gray-100 rounded-2xl p-4 sm:p-5 bg-white shadow-sm">
+            <div
+              ref={previewRef}
+              className="mt-5 lg:mt-0 lg:sticky lg:top-4 space-y-4 border border-gray-100 rounded-2xl p-4 sm:p-5 bg-white shadow-sm"
+            >
               <h2 className="font-semibold text-gray-800 flex items-center gap-2">
                 <BookOpen size={18} className="text-indigo-500" />
                 预览 · {headword.trim()}
@@ -266,7 +334,7 @@ export function WordLabPage() {
                 />
               </div>
               <div className="space-y-3 max-h-[min(55vh,28rem)] overflow-y-auto pr-1">
-                {preview.items.map((it, idx) => (
+                {preview.items.map(it => (
                   <div key={it.id} className="border border-gray-100 rounded-xl p-3 bg-gray-50/80">
                     <div className="flex flex-wrap gap-2 mb-2">
                       <span className="text-xs font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">
@@ -301,6 +369,65 @@ export function WordLabPage() {
           )}
         </div>
       </div>
+      <Dialog open={senseHelpOpen} onOpenChange={setSenseHelpOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>多义词约束说明</DialogTitle>
+            <DialogDescription asChild>
+              <div className="text-sm text-gray-600 leading-relaxed space-y-2">
+                <p>
+                  这个输入框用于指定你想练的<strong>词义方向</strong>。当目标词有多个常见含义时，模型会优先按这里的约束生成句子。
+                </p>
+                <p>
+                  例如：<code>issue</code> 可约束为“问题（problem，不是发布）”；<code>charge</code> 可约束为“收费（不是指控）”。
+                </p>
+                <p>不填也能生成，但多义词时更容易偏到你不想练的义项。</p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={dupPromptOpen} onOpenChange={setDupPromptOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>检测到重复卡片</DialogTitle>
+            <DialogDescription>
+              当前已有此单词/短语卡片，是否还要创建？
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => setDupPromptOpen(false)}
+              className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              否
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDupPromptOpen(false);
+                saveCardDirect();
+              }}
+              className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm hover:bg-violet-700"
+            >
+              仍创建
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!dupExistingCardId) return;
+                setDupPromptOpen(false);
+                navigate(`/vocab/${dupExistingCardId}`);
+              }}
+              disabled={!dupExistingCardId}
+              className="px-4 py-2 rounded-lg border border-violet-200 text-violet-700 text-sm hover:bg-violet-50 disabled:opacity-50"
+            >
+              跳转到已有卡片
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,12 +1,32 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { syncSave, syncLoad } from '../utils/api';
 import {
+  newCorpusEntryId,
+  newErrorBankEntryId,
+  newStuckPointId,
+  newVocabCardId,
+} from '../utils/ids';
+import {
+  mergeByIdNewerTimestamp,
+  mergeLearnedCollocationIds,
+  mergeFoundryExampleOverrides,
+  type FoundryExampleOverridePack,
+} from '../utils/syncMerge';
+import {
   computeNextDueAfterView,
   computeAfterRemembered,
   computeAfterStruggled,
   initialNextDueAt,
   isVocabCardDue,
 } from '../utils/vocabCardReview';
+import {
+  ERROR_REVIEW_RESET_HOURS,
+  ERROR_REVIEW_STAGE_HOURS,
+  MS_PER_HOUR,
+} from '../utils/reviewConfig';
+import { normalizeErrorSentenceForDedupe } from '../utils/errorBankDedupe';
+import { corpusSentenceDedupeKey } from '../utils/corpusDedupe';
+import { clearErrorReviewProduceDraft } from '../utils/errorReviewDraftStorage';
 
 export interface CorpusEntry {
   id: string;
@@ -52,6 +72,13 @@ export interface ErrorBankEntry {
   nextReviewAt: string | null;
   /** 复习阶段 0=24h, 1=3d, 2=7d */
   reviewStage: number;
+  /** 实验室写入：中文语境，供复习造句提示 */
+  reviewCueZh?: string;
+  /** 复习尝试次数（再产出失败等） */
+  reviewAttemptCount?: number;
+  lastReviewAttemptAt?: string;
+  /** 错题再产出：第 1 步填空已通过（持久化，可接着做第 2 步） */
+  reviewReproClozeDone?: boolean;
 }
 
 export interface StuckPointEntry {
@@ -88,37 +115,39 @@ export interface VocabCard {
   reviewStage: number;
 }
 
-function normalizeVocabCardItem(raw: any, idx: number, cardId: string): VocabCardItem {
+function normalizeVocabCardItem(raw: unknown, idx: number, cardId: string): VocabCardItem {
+  const r = raw as Record<string, unknown>;
+  const coll = r?.collocationsUsed;
   return {
-    id: String(raw?.id || `${cardId}-i${idx}`),
-    questionId: String(raw?.questionId || ''),
-    part: Number(raw?.part) || 1,
-    topic: String(raw?.topic || ''),
-    questionSnapshot: String(raw?.questionSnapshot || ''),
-    sentence: String(raw?.sentence || ''),
-    collocationsUsed: Array.isArray(raw?.collocationsUsed)
-      ? raw.collocationsUsed.map((x: any) => String(x))
-      : [],
-    chinese: raw?.chinese ? String(raw.chinese) : undefined,
+    id: String(r?.id || `${cardId}-i${idx}`),
+    questionId: String(r?.questionId || ''),
+    part: Number(r?.part) || 1,
+    topic: String(r?.topic || ''),
+    questionSnapshot: String(r?.questionSnapshot || ''),
+    sentence: String(r?.sentence || ''),
+    collocationsUsed: Array.isArray(coll) ? coll.map(x => String(x)) : [],
+    chinese: r?.chinese ? String(r.chinese) : undefined,
   };
 }
 
-function normalizeVocabCard(raw: any): VocabCard {
-  const id = String(raw?.id || `VC${Date.now()}`);
-  const items = Array.isArray(raw?.items)
-    ? raw.items.map((it: any, i: number) => normalizeVocabCardItem(it, i, id))
+function normalizeVocabCard(raw: unknown): VocabCard {
+  const r = raw as Record<string, unknown>;
+  const id = String(r?.id || newVocabCardId());
+  const rawItems = r?.items;
+  const items = Array.isArray(rawItems)
+    ? rawItems.map((it: unknown, i: number) => normalizeVocabCardItem(it, i, id))
     : [];
   return {
     id,
-    timestamp: String(raw?.timestamp || new Date().toISOString()),
-    headword: String(raw?.headword || ''),
-    sense: raw?.sense ? String(raw.sense) : undefined,
-    tags: Array.isArray(raw?.tags) ? raw.tags.map((t: any) => String(t)) : [],
+    timestamp: String(r?.timestamp || new Date().toISOString()),
+    headword: String(r?.headword || ''),
+    sense: r?.sense ? String(r.sense) : undefined,
+    tags: Array.isArray(r?.tags) ? (r.tags as unknown[]).map(t => String(t)) : [],
     items,
     source: 'ai_word_lab',
-    lastViewedAt: raw?.lastViewedAt != null ? String(raw.lastViewedAt) : null,
-    nextDueAt: raw?.nextDueAt != null ? String(raw.nextDueAt) : null,
-    reviewStage: typeof raw?.reviewStage === 'number' ? raw.reviewStage : 0,
+    lastViewedAt: r?.lastViewedAt != null ? String(r.lastViewedAt) : null,
+    nextDueAt: r?.nextDueAt != null ? String(r.nextDueAt) : null,
+    reviewStage: typeof r?.reviewStage === 'number' ? r.reviewStage : 0,
   };
 }
 
@@ -126,17 +155,48 @@ export interface LearningProgress {
   learnedCollocations: Set<string>;
 }
 
+function normalizeFoundryExampleOverrides(raw: unknown): Record<string, FoundryExampleOverridePack> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, FoundryExampleOverridePack> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+    const vo = v as Record<string, unknown>;
+    const itemsRaw = vo.items;
+    if (!Array.isArray(itemsRaw)) continue;
+    const items = itemsRaw
+      .map((x: unknown) => {
+        if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
+        const o = x as Record<string, unknown>;
+        const content = String(o.content ?? '').trim();
+        if (!content) return null;
+        const zh = o.chinese != null ? String(o.chinese).trim() : '';
+        return {
+          content,
+          chinese: zh ? zh : undefined,
+        };
+      })
+      .filter(Boolean) as FoundryExampleOverridePack['items'];
+    out[k] = {
+      items,
+      updatedAt: String(vo.updatedAt || new Date(0).toISOString()),
+    };
+  }
+  return out;
+}
+
 function loadFromStorage<T>(key: string, defaultValue: T): T {
   try {
     const stored = localStorage.getItem(key);
     if (stored) {
       const parsed = JSON.parse(stored);
+      if (key === 'ff_foundry_examples') {
+        return normalizeFoundryExampleOverrides(parsed) as unknown as T;
+      }
       if (key === 'ff_learned' && Array.isArray(parsed)) {
         return new Set(parsed) as unknown as T;
       }
       if (key === 'ff_errors' && Array.isArray(parsed)) {
-        const now = new Date().toISOString();
-        const next24 = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const next24 = new Date(Date.now() + ERROR_REVIEW_RESET_HOURS * MS_PER_HOUR).toISOString();
         return parsed.map((e: any) => ({
           ...e,
           errorCategory: e.errorCategory ?? 'grammar',
@@ -144,6 +204,10 @@ function loadFromStorage<T>(key: string, defaultValue: T): T {
           reviewStage: e.reviewStage ?? 0,
           nativeVersion: e.nativeVersion,
           nativeThinking: e.nativeThinking,
+          reviewCueZh: e.reviewCueZh,
+          reviewAttemptCount: e.reviewAttemptCount,
+          lastReviewAttemptAt: e.lastReviewAttemptAt,
+          reviewReproClozeDone: e.reviewReproClozeDone,
         })) as unknown as T;
       }
       if (key === 'ff_vocab_cards' && Array.isArray(parsed)) {
@@ -183,6 +247,11 @@ export function useAppStore(accessToken: string | null) {
   const [vocabCards, setVocabCards] = useState<VocabCard[]>(() =>
     loadFromStorage<VocabCard[]>('ff_vocab_cards', [])
   );
+  const [foundryExampleOverrides, setFoundryExampleOverrides] = useState<
+    Record<string, FoundryExampleOverridePack>
+  >(() => loadFromStorage<Record<string, FoundryExampleOverridePack>>('ff_foundry_examples', {}));
+  const corpusDedupeIndexRef = useRef<Map<string, string>>(new Map());
+  const errorDedupeIndexRef = useRef<Map<string, string>>(new Map());
 
   // Sync state
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'loading' | 'success' | 'error'>('idle');
@@ -218,6 +287,57 @@ export function useAppStore(accessToken: string | null) {
   useEffect(() => { saveToStorage('ff_stuck', stuckPoints); }, [stuckPoints]);
   useEffect(() => { saveToStorage('ff_learned', learnedCollocations); }, [learnedCollocations]);
   useEffect(() => { saveToStorage('ff_vocab_cards', vocabCards); }, [vocabCards]);
+  useEffect(() => {
+    saveToStorage('ff_foundry_examples', foundryExampleOverrides);
+  }, [foundryExampleOverrides]);
+  useEffect(() => {
+    const next = new Map<string, string>();
+    for (const e of corpus) {
+      next.set(corpusSentenceDedupeKey(e.collocationId, e.userSentence), e.id);
+    }
+    corpusDedupeIndexRef.current = next;
+  }, [corpus]);
+  useEffect(() => {
+    const next = new Map<string, string>();
+    for (const e of errorBank) {
+      if (e.resolved) continue;
+      next.set(`${e.collocationId}\0${normalizeErrorSentenceForDedupe(e.originalSentence)}`, e.id);
+    }
+    errorDedupeIndexRef.current = next;
+  }, [errorBank]);
+
+  const setFoundryExamplesForCollocation = useCallback(
+    (collocationId: string, items: FoundryExampleOverridePack['items']) => {
+      const cleaned = items
+        .map(it => ({
+          content: it.content.trim(),
+          chinese: it.chinese?.trim() ? it.chinese.trim() : undefined,
+        }))
+        .filter(it => it.content.length > 0);
+      setFoundryExampleOverrides(prev => {
+        const next = { ...prev };
+        if (cleaned.length === 0) {
+          delete next[collocationId];
+        } else {
+          next[collocationId] = {
+            items: cleaned,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  const clearFoundryExamplesForCollocation = useCallback((collocationId: string) => {
+    setFoundryExampleOverrides(prev => {
+      if (!(collocationId in prev)) return prev;
+      const next = { ...prev };
+      delete next[collocationId];
+      return next;
+    });
+  }, []);
 
   const markAsLearned = useCallback((colId: string) => {
     setLearnedCollocations(prev => {
@@ -236,46 +356,162 @@ export function useAppStore(accessToken: string | null) {
   }, []);
 
   const addToCorpus = useCallback((entry: Omit<CorpusEntry, 'id' | 'timestamp'>) => {
-    const newEntry: CorpusEntry = {
-      ...entry,
-      id: `S${Date.now()}`,
-      timestamp: new Date().toISOString(),
-    };
-    setCorpus(prev => [newEntry, ...prev]);
-    return newEntry;
+    const now = new Date().toISOString();
+    const incomingKey = corpusSentenceDedupeKey(entry.collocationId, entry.userSentence);
+
+    let resultEntry: CorpusEntry;
+
+    setCorpus(prev => {
+      const dupId = corpusDedupeIndexRef.current.get(incomingKey);
+      const dupIdx = dupId
+        ? prev.findIndex(e => e.id === dupId)
+        : prev.findIndex(e => corpusSentenceDedupeKey(e.collocationId, e.userSentence) === incomingKey);
+
+      if (dupIdx !== -1) {
+        const existing = prev[dupIdx];
+        const mergedTags = Array.from(
+          new Set([...existing.tags, ...entry.tags].map(t => t.trim()).filter(Boolean))
+        );
+        resultEntry = {
+          ...existing,
+          timestamp: now,
+          userSentence: entry.userSentence.trim() || existing.userSentence,
+          verbId: entry.verbId,
+          verb: entry.verb,
+          collocation: entry.collocation,
+          isCorrect: entry.isCorrect && existing.isCorrect,
+          mode: entry.mode,
+          tags: mergedTags.length ? mergedTags : existing.tags,
+          nativeVersion: entry.nativeVersion ?? existing.nativeVersion,
+          nativeThinking: entry.nativeThinking ?? existing.nativeThinking,
+          isChinglish: entry.isChinglish ?? existing.isChinglish,
+        };
+        const rest = prev.filter((_, i) => i !== dupIdx);
+        return [resultEntry, ...rest];
+      }
+
+      resultEntry = {
+        ...entry,
+        id: newCorpusEntryId(),
+        timestamp: now,
+      };
+      return [resultEntry, ...prev];
+    });
+
+    return resultEntry!;
   }, []);
 
-  const addToErrorBank = useCallback((entry: Omit<ErrorBankEntry, 'id' | 'timestamp' | 'resolved' | 'nextReviewAt' | 'reviewStage'> & { errorCategory?: ErrorCategory; nextReviewAt?: string | null; reviewStage?: number }) => {
+  const removeCorpusEntry = useCallback((entryId: string) => {
+    setCorpus(prev => prev.filter(e => e.id !== entryId));
+  }, []);
+
+  const addToErrorBank = useCallback((entry: Omit<ErrorBankEntry, 'id' | 'timestamp' | 'resolved' | 'nextReviewAt' | 'reviewStage'> & { errorCategory?: ErrorCategory; nextReviewAt?: string | null; reviewStage?: number; reviewCueZh?: string }) => {
     const now = new Date();
-    const nextReview = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
-    const newEntry: ErrorBankEntry = {
-      ...entry,
-      id: `E${Date.now()}`,
-      timestamp: now.toISOString(),
-      resolved: false,
-      errorCategory: entry.errorCategory ?? 'grammar',
-      nextReviewAt: entry.nextReviewAt ?? nextReview,
-      reviewStage: entry.reviewStage ?? 0,
-    };
-    setErrorBank(prev => [newEntry, ...prev]);
-    return newEntry;
+    const nextReview = new Date(now.getTime() + ERROR_REVIEW_RESET_HOURS * MS_PER_HOUR).toISOString();
+    const incomingNorm = normalizeErrorSentenceForDedupe(entry.originalSentence);
+    const incomingKey = `${entry.collocationId}\0${incomingNorm}`;
+
+    let resultEntry: ErrorBankEntry;
+
+    setErrorBank(prev => {
+      const dupId = errorDedupeIndexRef.current.get(incomingKey);
+      const dupIdx = dupId
+        ? prev.findIndex(e => e.id === dupId)
+        : prev.findIndex(
+            e =>
+              !e.resolved &&
+              e.collocationId === entry.collocationId &&
+              normalizeErrorSentenceForDedupe(e.originalSentence) === incomingNorm
+          );
+
+      if (dupIdx !== -1) {
+        const existing = prev[dupIdx];
+        const mergedErrorTypes = Array.from(
+          new Set([...existing.errorTypes, ...entry.errorTypes].map(t => t.trim()).filter(Boolean))
+        );
+        const mergedGrammarPoints = Array.from(
+          new Set([...existing.grammarPoints, ...entry.grammarPoints].map(g => g.trim()).filter(Boolean))
+        );
+        resultEntry = {
+          ...existing,
+          timestamp: now.toISOString(),
+          originalSentence: entry.originalSentence.trim() || existing.originalSentence,
+          errorTypes: mergedErrorTypes.length ? mergedErrorTypes : existing.errorTypes,
+          errorCategory: entry.errorCategory ?? existing.errorCategory,
+          diagnosis: entry.diagnosis || existing.diagnosis,
+          hint: entry.hint || existing.hint,
+          grammarPoints: mergedGrammarPoints.length ? mergedGrammarPoints : existing.grammarPoints,
+          reviewCueZh: entry.reviewCueZh ?? existing.reviewCueZh,
+          nativeVersion: entry.nativeVersion ?? existing.nativeVersion,
+          nativeThinking: entry.nativeThinking ?? existing.nativeThinking,
+          reviewReproClozeDone: existing.reviewReproClozeDone,
+        };
+        const rest = prev.filter((_, i) => i !== dupIdx);
+        return [resultEntry, ...rest];
+      }
+
+      resultEntry = {
+        ...entry,
+        id: newErrorBankEntryId(),
+        timestamp: now.toISOString(),
+        resolved: false,
+        errorCategory: entry.errorCategory ?? 'grammar',
+        nextReviewAt: entry.nextReviewAt ?? nextReview,
+        reviewStage: entry.reviewStage ?? 0,
+        reviewCueZh: entry.reviewCueZh,
+      };
+      return [resultEntry, ...prev];
+    });
+
+    return resultEntry!;
+  }, []);
+
+  const recordErrorReviewAttempt = useCallback((errorId: string) => {
+    setErrorBank(prev =>
+      prev.map(e => {
+        if (e.id !== errorId) return e;
+        return {
+          ...e,
+          reviewAttemptCount: (e.reviewAttemptCount ?? 0) + 1,
+          lastReviewAttemptAt: new Date().toISOString(),
+        };
+      })
+    );
   }, []);
 
   const resolveError = useCallback((errorId: string) => {
-    setErrorBank(prev => prev.map(e => e.id === errorId ? { ...e, resolved: true } : e));
+    clearErrorReviewProduceDraft(errorId);
+    setErrorBank(prev =>
+      prev.map(e =>
+        e.id === errorId ? { ...e, resolved: true, reviewReproClozeDone: false } : e
+      )
+    );
+  }, []);
+
+  const removeErrorBankEntry = useCallback((errorId: string) => {
+    clearErrorReviewProduceDraft(errorId);
+    setErrorBank(prev => prev.filter(e => e.id !== errorId));
+  }, []);
+
+  const setErrorReviewReproClozeDone = useCallback((errorId: string, done: boolean) => {
+    setErrorBank(prev =>
+      prev.map(e => (e.id === errorId ? { ...e, reviewReproClozeDone: done } : e))
+    );
   }, []);
 
   /** 极简复习：通过重测后安排下一轮 (24h -> 3d -> 7d) */
   const scheduleNextReview = useCallback((errorId: string) => {
+    clearErrorReviewProduceDraft(errorId);
     setErrorBank(prev => prev.map(e => {
       if (e.id !== errorId || e.resolved) return e;
       const stage = e.reviewStage ?? 0;
       const nextStage = Math.min(stage + 1, 2);
-      const hours = nextStage === 0 ? 24 : nextStage === 1 ? 24 * 3 : 24 * 7;
+      const hours = ERROR_REVIEW_STAGE_HOURS[nextStage] ?? ERROR_REVIEW_STAGE_HOURS[0];
       return {
         ...e,
         reviewStage: nextStage,
-        nextReviewAt: new Date(Date.now() + hours * 60 * 60 * 1000).toISOString(),
+        nextReviewAt: new Date(Date.now() + hours * MS_PER_HOUR).toISOString(),
+        reviewReproClozeDone: false,
       };
     }));
   }, []);
@@ -287,7 +523,7 @@ export function useAppStore(accessToken: string | null) {
       return {
         ...e,
         reviewStage: 0,
-        nextReviewAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        nextReviewAt: new Date(Date.now() + ERROR_REVIEW_RESET_HOURS * MS_PER_HOUR).toISOString(),
       };
     }));
   }, []);
@@ -295,7 +531,7 @@ export function useAppStore(accessToken: string | null) {
   const addStuckPoint = useCallback((entry: Omit<StuckPointEntry, 'id' | 'timestamp' | 'resolved'>) => {
     const newEntry: StuckPointEntry = {
       ...entry,
-      id: `ST${Date.now()}`,
+      id: newStuckPointId(),
       timestamp: new Date().toISOString(),
       resolved: false,
     };
@@ -313,11 +549,12 @@ export function useAppStore(accessToken: string | null) {
     setStuckPoints([]);
     setLearnedCollocations(new Set());
     setVocabCards([]);
+    setFoundryExampleOverrides({});
   }, []);
 
   const addVocabCard = useCallback(
     (input: { headword: string; sense?: string; tags: string[]; items: VocabCardItem[] }) => {
-      const id = `VC${Date.now()}`;
+      const id = newVocabCardId();
       const now = new Date().toISOString();
       const items = input.items.map((it, i) => ({
         ...it,
@@ -405,6 +642,7 @@ export function useAppStore(accessToken: string | null) {
         stuckPoints,
         learnedCollocations: Array.from(learnedCollocations),
         vocabCards,
+        foundryExampleOverrides,
       });
       const ts = result.timestamp;
       setLastSyncTime(ts);
@@ -417,7 +655,7 @@ export function useAppStore(accessToken: string | null) {
       setSyncError(err.message || 'Sync failed');
       setSyncStatus('error');
     }
-  }, [accessToken, corpus, errorBank, stuckPoints, learnedCollocations, vocabCards]);
+  }, [accessToken, corpus, errorBank, stuckPoints, learnedCollocations, vocabCards, foundryExampleOverrides]);
 
   const pullFromCloud = useCallback(async () => {
     if (!accessToken) {
@@ -428,13 +666,17 @@ export function useAppStore(accessToken: string | null) {
     setSyncStatus('loading');
     setSyncError(null);
     try {
-      const data = await syncLoad(accessToken);
-      setCorpus(data.corpus || []);
-      setErrorBank(data.errorBank || []);
-      setStuckPoints(data.stuckPoints || []);
-      setLearnedCollocations(new Set(data.learnedCollocations || []));
-      setVocabCards((data.vocabCards || []).map((c: any) => normalizeVocabCard(c)));
-      const ts = new Date().toISOString();
+      const data = await syncLoad(accessToken, lastSyncTime);
+      const remoteVocab = (data.vocabCards || []).map(c => normalizeVocabCard(c));
+      setCorpus(prev => mergeByIdNewerTimestamp(prev, data.corpus || []));
+      setErrorBank(prev => mergeByIdNewerTimestamp(prev, data.errorBank || []));
+      setStuckPoints(prev => mergeByIdNewerTimestamp(prev, data.stuckPoints || []));
+      setLearnedCollocations(prev => mergeLearnedCollocationIds(prev, data.learnedCollocations));
+      setVocabCards(prev => mergeByIdNewerTimestamp(prev, remoteVocab).map(c => normalizeVocabCard(c)));
+      setFoundryExampleOverrides(prev =>
+        mergeFoundryExampleOverrides(prev, normalizeFoundryExampleOverrides(data.foundryExampleOverrides))
+      );
+      const ts = data.serverTimestamp || new Date().toISOString();
       setLastSyncTime(ts);
       localStorage.setItem('ff_last_sync', ts);
       lastSyncedVersion.current = dataVersion.current;
@@ -445,7 +687,7 @@ export function useAppStore(accessToken: string | null) {
       setSyncError(err.message || 'Load failed');
       setSyncStatus('error');
     }
-  }, [accessToken]);
+  }, [accessToken, lastSyncTime]);
 
   // Auto-pull from cloud on first login
   useEffect(() => {
@@ -456,21 +698,28 @@ export function useAppStore(accessToken: string | null) {
         setSyncStatus('loading');
         setSyncError(null);
         try {
-          const data = await syncLoad(accessToken);
+          const data = await syncLoad(accessToken, lastSyncTime);
           const hasCloudData =
             (data.corpus?.length > 0) ||
             (data.errorBank?.length > 0) ||
             (data.stuckPoints?.length > 0) ||
             (data.learnedCollocations?.length > 0) ||
-            (data.vocabCards?.length > 0);
+            ((data.vocabCards?.length ?? 0) > 0) ||
+            Object.keys(normalizeFoundryExampleOverrides(data.foundryExampleOverrides)).length > 0;
           if (hasCloudData) {
-            setCorpus(data.corpus || []);
-            setErrorBank(data.errorBank || []);
-            setStuckPoints(data.stuckPoints || []);
-            setLearnedCollocations(new Set(data.learnedCollocations || []));
-            setVocabCards((data.vocabCards || []).map((c: any) => normalizeVocabCard(c)));
+            const remoteVocab = (data.vocabCards || []).map(c => normalizeVocabCard(c));
+            setCorpus(prev => mergeByIdNewerTimestamp(prev, data.corpus || []));
+            setErrorBank(prev => mergeByIdNewerTimestamp(prev, data.errorBank || []));
+            setStuckPoints(prev => mergeByIdNewerTimestamp(prev, data.stuckPoints || []));
+            setLearnedCollocations(prev => mergeLearnedCollocationIds(prev, data.learnedCollocations));
+            setVocabCards(prev =>
+              mergeByIdNewerTimestamp(prev, remoteVocab).map(c => normalizeVocabCard(c))
+            );
+            setFoundryExampleOverrides(prev =>
+              mergeFoundryExampleOverrides(prev, normalizeFoundryExampleOverrides(data.foundryExampleOverrides))
+            );
           }
-          const ts = new Date().toISOString();
+          const ts = data.serverTimestamp || new Date().toISOString();
           setLastSyncTime(ts);
           localStorage.setItem('ff_last_sync', ts);
           setSyncStatus('success');
@@ -491,12 +740,12 @@ export function useAppStore(accessToken: string | null) {
     if (!accessToken) {
       initialPullDone.current = false;
     }
-  }, [accessToken]);
+  }, [accessToken, autoSyncEnabled, lastSyncTime]);
 
   // Track data version changes
   useEffect(() => {
     dataVersion.current += 1;
-  }, [corpus, errorBank, stuckPoints, learnedCollocations, vocabCards]);
+  }, [corpus, errorBank, stuckPoints, learnedCollocations, vocabCards, foundryExampleOverrides]);
 
   const vocabDueCount = useMemo(
     () => vocabCards.filter(c => isVocabCardDue(c.nextDueAt)).length,
@@ -528,6 +777,7 @@ export function useAppStore(accessToken: string | null) {
           stuckPoints,
           learnedCollocations: Array.from(learnedCollocations),
           vocabCards,
+          foundryExampleOverrides,
         });
         const ts = result.timestamp;
         setLastSyncTime(ts);
@@ -547,7 +797,18 @@ export function useAppStore(accessToken: string | null) {
         clearTimeout(debounceTimer.current);
       }
     };
-  }, [accessToken, corpus, errorBank, stuckPoints, learnedCollocations, vocabCards, syncStatus, syncError, autoSyncEnabled]);
+  }, [
+    accessToken,
+    corpus,
+    errorBank,
+    stuckPoints,
+    learnedCollocations,
+    vocabCards,
+    foundryExampleOverrides,
+    syncStatus,
+    syncError,
+    autoSyncEnabled,
+  ]);
 
   return {
     corpus,
@@ -555,12 +816,19 @@ export function useAppStore(accessToken: string | null) {
     stuckPoints,
     learnedCollocations,
     vocabCards,
+    foundryExampleOverrides,
+    setFoundryExamplesForCollocation,
+    clearFoundryExamplesForCollocation,
     vocabDueCount,
     markAsLearned,
     unmarkAsLearned,
     addToCorpus,
+    removeCorpusEntry,
     addToErrorBank,
+    recordErrorReviewAttempt,
+    setErrorReviewReproClozeDone,
     resolveError,
+    removeErrorBankEntry,
     scheduleNextReview,
     resetReview,
     addStuckPoint,

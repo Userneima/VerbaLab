@@ -1,15 +1,6 @@
 import { createBrowserRouter } from 'react-router';
 import { Layout } from './components/Layout';
 import { HomePage } from './pages/HomePage';
-import { FoundryPage } from './pages/FoundryPage';
-import { LabPage } from './pages/LabPage';
-import { FieldPage } from './pages/FieldPage';
-import { CorpusPage } from './pages/CorpusPage';
-import { ErrorBankPage } from './pages/ErrorBankPage';
-import { StuckPointsPage } from './pages/StuckPointsPage';
-import { WordLabPage } from './pages/WordLabPage';
-import { VocabReviewPage } from './pages/VocabReviewPage';
-import { VocabCardDetailPage } from './pages/VocabCardDetailPage';
 
 export const router = createBrowserRouter([
   {
@@ -17,15 +8,43 @@ export const router = createBrowserRouter([
     Component: Layout,
     children: [
       { index: true, Component: HomePage },
-      { path: 'foundry', Component: FoundryPage },
-      { path: 'lab', Component: LabPage },
-      { path: 'field', Component: FieldPage },
-      { path: 'word-lab', Component: WordLabPage },
-      { path: 'vocab-review', Component: VocabReviewPage },
-      { path: 'vocab/:id', Component: VocabCardDetailPage },
-      { path: 'corpus', Component: CorpusPage },
-      { path: 'errors', Component: ErrorBankPage },
-      { path: 'stuck', Component: StuckPointsPage },
+      {
+        path: 'foundry',
+        lazy: () => import('./pages/FoundryPage').then(m => ({ Component: m.FoundryPage })),
+      },
+      {
+        path: 'lab',
+        lazy: () => import('./pages/LabPage').then(m => ({ Component: m.LabPage })),
+      },
+      {
+        path: 'field',
+        lazy: () => import('./pages/FieldPage').then(m => ({ Component: m.FieldPage })),
+      },
+      {
+        path: 'word-lab',
+        lazy: () => import('./pages/WordLabPage').then(m => ({ Component: m.WordLabPage })),
+      },
+      {
+        path: 'vocab-review',
+        lazy: () => import('./pages/VocabReviewPage').then(m => ({ Component: m.VocabReviewPage })),
+      },
+      {
+        path: 'vocab/:id',
+        lazy: () =>
+          import('./pages/VocabCardDetailPage').then(m => ({ Component: m.VocabCardDetailPage })),
+      },
+      {
+        path: 'corpus',
+        lazy: () => import('./pages/CorpusPage').then(m => ({ Component: m.CorpusPage })),
+      },
+      {
+        path: 'errors',
+        lazy: () => import('./pages/ErrorBankPage').then(m => ({ Component: m.ErrorBankPage })),
+      },
+      {
+        path: 'stuck',
+        lazy: () => import('./pages/StuckPointsPage').then(m => ({ Component: m.StuckPointsPage })),
+      },
     ],
   },
 ]);

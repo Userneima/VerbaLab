@@ -13,6 +13,9 @@ import {
   Languages,
 } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
+import { isVocabCardDue } from '../utils/vocabCardReview';
+import { pickCollocationForCloze } from '../utils/reviewGate';
+import { VocabReproducePanel } from '../components/VocabReproducePanel';
 
 const QUESTION_PREVIEW_LEN = 100;
 
@@ -39,11 +42,13 @@ export function VocabCardDetailPage() {
   const [tagsEditingOpen, setTagsEditingOpen] = useState(false);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [zhOpenById, setZhOpenById] = useState<Record<string, boolean>>({});
+  const [passedReproItemIds, setPassedReproItemIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     setTagsEditingOpen(false);
     setTagInput('');
     setZhOpenById({});
+    setPassedReproItemIds(new Set());
   }, [id]);
 
   const itemIdsKey = card?.items?.map(i => i.id).join('|') ?? '';
@@ -94,6 +99,14 @@ export function VocabCardDetailPage() {
       tags: card.tags.filter(t => t !== tagToRemove),
     });
   };
+
+  const isDue = isVocabCardDue(card.nextDueAt);
+  const anyReproPassed = passedReproItemIds.size > 0;
+  const reproFooterBlocked = isDue && !anyReproPassed;
+  const targetPhraseForItem = (it: (typeof card.items)[0]) =>
+    pickCollocationForCloze(it.sentence, it.collocationsUsed) ||
+    it.collocationsUsed[0] ||
+    card.headword;
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden bg-gray-50">
@@ -220,7 +233,7 @@ export function VocabCardDetailPage() {
           <div className="space-y-2">
             <h2 className="font-semibold text-gray-800 text-sm px-0.5">例句与题目</h2>
             <p className="text-xs text-gray-400 px-0.5 -mt-1 leading-relaxed">
-              折叠时只看题干；点行展开看英文例句；再点例句显示或隐藏中文。同时只展开一条。
+              折叠时只看题干；点行展开。到期复习时须先完成「填空 + 造句」再查看例句并标记复习结果。同时只展开一条。
             </p>
             <div className="space-y-2">
               {card.items.map(it => {
@@ -259,44 +272,67 @@ export function VocabCardDetailPage() {
                     </button>
                     {open && (
                       <div className="px-3 sm:px-4 pb-4 pt-0 space-y-3 border-t border-gray-50">
-                        <div className="pt-3">
-                          <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-2">例句</p>
-                          <button
-                            type="button"
-                            onClick={() => it.chinese && toggleZh(it.id)}
-                            className={`w-full text-left rounded-lg border px-3 py-3 text-sm leading-relaxed font-medium transition-colors ${
-                              it.chinese
-                                ? zhOpenById[it.id]
-                                  ? 'border-violet-200 bg-violet-50/50 text-gray-900'
-                                  : 'border-gray-200 bg-white text-gray-800 hover:border-violet-200 hover:bg-violet-50/30 cursor-pointer'
-                                : 'border-gray-200 bg-white text-gray-800 cursor-default'
-                            }`}
-                            aria-label={it.chinese ? (zhOpenById[it.id] ? '隐藏中文翻译' : '显示中文翻译') : undefined}
-                          >
-                            {it.sentence}
-                            {it.chinese && !zhOpenById[it.id] && (
-                              <span className="mt-2 flex items-center gap-1 text-xs font-normal text-violet-600">
-                                <Languages size={12} />
-                                点击显示中文
-                              </span>
-                            )}
-                          </button>
-                          {it.chinese && zhOpenById[it.id] && (
-                            <p className="text-gray-600 text-sm leading-relaxed mt-2 pl-1 border-l-2 border-violet-200">
-                              {it.chinese}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          {it.collocationsUsed.map(p => (
-                            <span
-                              key={p}
-                              className="text-[11px] bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-100"
-                            >
-                              {p}
-                            </span>
-                          ))}
-                        </div>
+                        {isDue && !anyReproPassed && (
+                          <div className="pt-3">
+                            <VocabReproducePanel
+                              key={it.id}
+                              referenceSentence={it.sentence}
+                              targetCollocation={targetPhraseForItem(it)}
+                              cueZh={it.chinese}
+                              alreadyPassed={false}
+                              onComplete={() =>
+                                setPassedReproItemIds(prev => new Set(prev).add(it.id))
+                              }
+                            />
+                          </div>
+                        )}
+                        {isDue && !anyReproPassed && (
+                          <p className="text-[11px] text-violet-600 leading-relaxed">
+                            完成上方再产出后即可查看例句；任一条目通过即可解锁全部例句与下方复习按钮。
+                          </p>
+                        )}
+                        {(!isDue || anyReproPassed) && (
+                          <>
+                            <div className="pt-3">
+                              <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-2">例句</p>
+                              <button
+                                type="button"
+                                onClick={() => it.chinese && toggleZh(it.id)}
+                                className={`w-full text-left rounded-lg border px-3 py-3 text-sm leading-relaxed font-medium transition-colors ${
+                                  it.chinese
+                                    ? zhOpenById[it.id]
+                                      ? 'border-violet-200 bg-violet-50/50 text-gray-900'
+                                      : 'border-gray-200 bg-white text-gray-800 hover:border-violet-200 hover:bg-violet-50/30 cursor-pointer'
+                                    : 'border-gray-200 bg-white text-gray-800 cursor-default'
+                                }`}
+                                aria-label={it.chinese ? (zhOpenById[it.id] ? '隐藏中文翻译' : '显示中文翻译') : undefined}
+                              >
+                                {it.sentence}
+                                {it.chinese && !zhOpenById[it.id] && (
+                                  <span className="mt-2 flex items-center gap-1 text-xs font-normal text-violet-600">
+                                    <Languages size={12} />
+                                    点击显示中文
+                                  </span>
+                                )}
+                              </button>
+                              {it.chinese && zhOpenById[it.id] && (
+                                <p className="text-gray-600 text-sm leading-relaxed mt-2 pl-1 border-l-2 border-violet-200">
+                                  {it.chinese}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {it.collocationsUsed.map(p => (
+                                <span
+                                  key={p}
+                                  className="text-[11px] bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-100"
+                                >
+                                  {p}
+                                </span>
+                              ))}
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -325,13 +361,20 @@ export function VocabCardDetailPage() {
               ：阶段 +1，间隔拉长。
               <strong className="text-gray-700">还不太熟</strong>
               ：回到阶段 0，约 1 天后再提醒。
+              {isDue && (
+                <span className="block mt-1 text-violet-700">
+                  卡片到期时：须至少完成一条目下的「填空 + 造句批改」后，才能使用上述按钮。
+                </span>
+              )}
             </p>
           </details>
           <div className="flex flex-wrap gap-2 pt-1">
             <button
               type="button"
               onClick={() => store.markVocabCardViewed(card.id)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-violet-200 text-violet-800 text-sm font-medium hover:bg-violet-50"
+              disabled={reproFooterBlocked}
+              title={reproFooterBlocked ? '请先完成至少一条目的再产出' : undefined}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-violet-200 text-violet-800 text-sm font-medium hover:bg-violet-50 disabled:opacity-45 disabled:cursor-not-allowed"
             >
               <Check size={16} />
               已浏览
@@ -339,7 +382,9 @@ export function VocabCardDetailPage() {
             <button
               type="button"
               onClick={() => store.markVocabCardRemembered(card.id)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+              disabled={reproFooterBlocked}
+              title={reproFooterBlocked ? '请先完成至少一条目的再产出' : undefined}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-45 disabled:cursor-not-allowed"
             >
               <ThumbsUp size={16} />
               记住了
@@ -347,7 +392,9 @@ export function VocabCardDetailPage() {
             <button
               type="button"
               onClick={() => store.markVocabCardStruggled(card.id)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-100 border border-amber-200 text-amber-900 text-sm font-medium hover:bg-amber-200/80"
+              disabled={reproFooterBlocked}
+              title={reproFooterBlocked ? '请先完成至少一条目的再产出' : undefined}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-100 border border-amber-200 text-amber-900 text-sm font-medium hover:bg-amber-200/80 disabled:opacity-45 disabled:cursor-not-allowed"
             >
               <HelpCircle size={16} />
               还不太熟

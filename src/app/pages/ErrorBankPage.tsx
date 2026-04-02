@@ -1,8 +1,10 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router';
-import { AlertCircle, Search, CheckCircle2, Filter, BookOpen, Clock, RotateCcw } from 'lucide-react';
+import { AlertCircle, Search, CheckCircle2, Filter, BookOpen, Clock, Trash2 } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import type { ErrorCategory } from '../store/useStore';
+import { ErrorReviewReproducePanel, isEntryDue } from '../components/ErrorReviewReproducePanel';
+import { VirtualizedStack } from '../components/VirtualizedStack';
 
 type FilterStatus = 'all' | 'unresolved' | 'resolved';
 
@@ -145,6 +147,7 @@ export function ErrorBankPage() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [filterCategory, setFilterCategory] = useState<ErrorCategory | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [openDueReviewId, setOpenDueReviewId] = useState<string | null>(null);
 
   const errorsDueForReview = useMemo(() => {
     const now = new Date().toISOString();
@@ -202,20 +205,14 @@ export function ErrorBankPage() {
     return () => window.cancelAnimationFrame(t);
   }, [highlightId, filtered, setSearchParams]);
 
-  // Error type stats
-  const errorTypeStats = useMemo(() => {
-    const stats: Record<string, number> = {};
-    store.errorBank
-      .filter(e => !e.resolved)
-      .forEach(e => {
-        e.errorTypes.forEach(t => {
-          stats[t] = (stats[t] || 0) + 1;
-        });
-      });
-    return Object.entries(stats).sort((a, b) => b[1] - a[1]);
-  }, [store.errorBank]);
-
   const unresolvedCount = store.errorBank.filter(e => !e.resolved).length;
+
+  const deleteErrorEntry = (entryId: string) => {
+    if (!confirm('确定删除这条错误记录？删除后无法恢复。')) return;
+    store.removeErrorBankEntry(entryId);
+    setExpandedId(prev => (prev === entryId ? null : prev));
+    setOpenDueReviewId(prev => (prev === entryId ? null : prev));
+  };
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
@@ -261,25 +258,55 @@ export function ErrorBankPage() {
                       <span className="text-amber-600 text-sm">{errorsDueForReview.length} 条到点</span>
                     </div>
                   </div>
-                  <p className="text-amber-700 text-xs mb-3">错句按 24 小时 → 3 天 → 7 天重测；通过则进入下一轮，未通过则重置为 24h。</p>
+                  <p className="text-amber-700 text-xs mb-3">
+                    到点后需完成「填空 + 造句批改」再推进间隔；可点「推迟」将下次重测延至 24h 后。
+                  </p>
                   <div className="space-y-2">
                     {errorsDueForReview.slice(0, 5).map(entry => (
-                      <div key={entry.id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 border border-amber-100">
-                        <span className="text-gray-700 text-sm truncate flex-1">"{entry.originalSentence}"</span>
-                        <div className="flex gap-1 shrink-0">
-                          <button
-                            onClick={() => store.scheduleNextReview(entry.id)}
-                            className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-medium hover:bg-emerald-200"
-                          >
-                            通过
-                          </button>
-                          <button
-                            onClick={() => store.resetReview(entry.id)}
-                            className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium hover:bg-amber-200"
-                          >
-                            再测
-                          </button>
+                      <div
+                        key={entry.id}
+                        className="bg-white rounded-lg px-3 py-2 border border-amber-100 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-gray-800 text-sm font-medium truncate flex-1">
+                            {entry.verb} · {entry.collocation}
+                          </span>
+                          <div className="flex gap-1 shrink-0 items-center">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOpenDueReviewId(openDueReviewId === entry.id ? null : entry.id)
+                              }
+                              className="px-2 py-1 bg-violet-100 text-violet-800 rounded text-xs font-medium hover:bg-violet-200"
+                            >
+                              {openDueReviewId === entry.id ? '收起' : '再产出'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => store.resetReview(entry.id)}
+                              className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium hover:bg-amber-200"
+                            >
+                              推迟
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteErrorEntry(entry.id)}
+                              className="p-1.5 text-red-600 rounded hover:bg-red-50 border border-transparent hover:border-red-100"
+                              title="删除记录"
+                              aria-label="删除记录"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
+                        {openDueReviewId === entry.id && (
+                          <ErrorReviewReproducePanel
+                            entry={entry}
+                            onSchedulePass={() => store.scheduleNextReview(entry.id)}
+                            onResetDefer={() => store.resetReview(entry.id)}
+                            onRecordAttempt={() => store.recordErrorReviewAttempt(entry.id)}
+                          />
+                        )}
                       </div>
                     ))}
                     {errorsDueForReview.length > 5 && (
@@ -306,24 +333,6 @@ export function ErrorBankPage() {
                   <div className="text-gray-500 text-sm">总错误数</div>
                 </div>
               </div>
-
-              {/* Error type breakdown */}
-              {errorTypeStats.length > 0 && (
-                <div className="bg-white border border-gray-100 rounded-xl p-5">
-                  <h3 className="font-semibold text-gray-700 text-sm mb-3">高频错误类型</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {errorTypeStats.map(([type, count]) => {
-                      const info = getErrorTypeStyle(type);
-                      return (
-                        <div key={type} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${info.color}`}>
-                          <span>{info.label}</span>
-                          <span className="bg-white/60 px-1.5 py-0.5 rounded-full">{count}次</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               {/* Filters */}
               <div className="flex flex-wrap gap-3">
@@ -369,8 +378,16 @@ export function ErrorBankPage() {
               </div>
 
               {/* Error list */}
-              <div className="space-y-3">
-                {filtered.map(entry => {
+              <VirtualizedStack
+                items={filtered}
+                estimateSize={220}
+                className="max-h-[68vh] overflow-y-auto pr-1"
+                empty={
+                  <div className="text-center py-8 text-gray-400 text-sm">
+                    {search ? `未找到匹配 "${search}" 的错误记录` : '没有符合条件的记录'}
+                  </div>
+                }
+                renderItem={entry => {
                   const isExpanded = expandedId === entry.id;
                   return (
                     <div
@@ -390,8 +407,10 @@ export function ErrorBankPage() {
                               <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded font-medium">
                                 {entry.verb} · {entry.collocation}
                               </span>
-                              <span className={`text-xs px-2 py-0.5 rounded font-medium ${ERROR_CATEGORY_LABELS[(entry as any).errorCategory || 'grammar'].color}`}>
-                                {ERROR_CATEGORY_LABELS[(entry as any).errorCategory || 'grammar'].label}
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded font-medium ${ERROR_CATEGORY_LABELS[entry.errorCategory ?? 'grammar'].color}`}
+                              >
+                                {ERROR_CATEGORY_LABELS[entry.errorCategory ?? 'grammar'].label}
                               </span>
                               {entry.resolved && (
                                 <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded font-medium">
@@ -411,8 +430,22 @@ export function ErrorBankPage() {
                               })}
                             </div>
                           </div>
-                          <div className="text-xs text-gray-400 shrink-0">
-                            {new Date(entry.timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                          <div className="flex flex-col items-end gap-2 shrink-0">
+                            <div className="text-xs text-gray-400">
+                              {new Date(entry.timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                deleteErrorEntry(entry.id);
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-red-600 px-2 py-1 rounded-lg border border-red-100 hover:bg-red-50"
+                              title="删除记录"
+                            >
+                              <Trash2 size={12} />
+                              删除
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -473,28 +506,28 @@ export function ErrorBankPage() {
                             </div>
                           )}
 
-                          {/* 复习操作：通过 / 再测 */}
+                          {/* 复习：再产出过关后自动推进间隔 */}
                           {!entry.resolved && entry.nextReviewAt && (
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => store.scheduleNextReview(entry.id)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-medium hover:bg-emerald-200"
-                              >
-                                重测通过
-                              </button>
-                              <button
-                                onClick={() => store.resetReview(entry.id)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-200"
-                              >
-                                <RotateCcw size={12} />
-                                再测
-                              </button>
+                            <div className="space-y-2">
+                              {isEntryDue(entry) ? (
+                                <ErrorReviewReproducePanel
+                                  entry={entry}
+                                  onSchedulePass={() => store.scheduleNextReview(entry.id)}
+                                  onResetDefer={() => store.resetReview(entry.id)}
+                                  onRecordAttempt={() => store.recordErrorReviewAttempt(entry.id)}
+                                />
+                              ) : (
+                                <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                                  下次重测：{new Date(entry.nextReviewAt).toLocaleString('zh-CN')}
+                                </p>
+                              )}
                             </div>
                           )}
 
                           {/* Actions */}
                           {!entry.resolved && (
                             <button
+                              type="button"
                               onClick={() => store.resolveError(entry.id)}
                               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
                             >
@@ -506,13 +539,8 @@ export function ErrorBankPage() {
                       )}
                     </div>
                   );
-                })}
-                {filtered.length === 0 && (
-                  <div className="text-center py-8 text-gray-400 text-sm">
-                    {search ? `未找到匹配 "${search}" 的错误记录` : '没有符合条件的记录'}
-                  </div>
-                )}
-              </div>
+                }}
+              />
             </>
           )}
         </div>

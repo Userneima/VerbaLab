@@ -12,6 +12,75 @@ const supabaseAdmin = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
 );
 
+function getClientIp(c: any): string {
+  const xff = c.req.header('x-forwarded-for');
+  if (xff) return xff.split(',')[0].trim();
+  const xri = c.req.header('x-real-ip');
+  if (xri) return xri.trim();
+  return 'unknown';
+}
+
+async function enforceRateLimit(
+  key: string,
+  limit: number,
+  windowMs: number
+): Promise<{ ok: true } | { ok: false; retryAfterSec: number }> {
+  const now = Date.now();
+  const rlKey = `rl:${key}`;
+  const bucket = await kv.get(rlKey) as { count?: number; resetAt?: number } | undefined;
+  if (!bucket || bucket.resetAt <= now) {
+    await kv.set(rlKey, { count: 1, resetAt: now + windowMs });
+    return { ok: true };
+  }
+  if ((bucket.count || 0) >= limit) {
+    return { ok: false, retryAfterSec: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) };
+  }
+  await kv.set(rlKey, { count: (bucket.count || 0) + 1, resetAt: bucket.resetAt });
+  return { ok: true };
+}
+
+function getAllowedOrigins(): Set<string> {
+  const raw = Deno.env.get("CORS_ALLOW_ORIGINS") || "";
+  const list = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (list.length === 0) {
+    return new Set([
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+    ]);
+  }
+  return new Set(list);
+}
+
+const ALLOWED_ORIGINS = getAllowedOrigins();
+
+async function captureServerError(scope: string, err: unknown) {
+  const dsn = Deno.env.get("SENTRY_DSN");
+  if (!dsn) return;
+  try {
+    const url = new URL(dsn);
+    const projectId = url.pathname.split("/").filter(Boolean).pop();
+    if (!projectId || !url.username) return;
+    const endpoint = `${url.protocol}//${url.host}/api/${projectId}/store/`;
+    await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sentry-Auth": `Sentry sentry_version=7, sentry_key=${url.username}` },
+      body: JSON.stringify({
+        message: `${scope}: ${String(err)}`,
+        level: "error",
+        platform: "javascript",
+        logger: "edge-function",
+      }),
+    });
+  } catch (_) {
+    // noop
+  }
+}
+
 // Helper: extract userId from auth token
 async function getUserId(c: any): Promise<string | null> {
   const accessToken = c.req.header('Authorization')?.split(' ')[1];
@@ -25,6 +94,19 @@ async function getUserId(c: any): Promise<string | null> {
   }
 }
 
+async function requireAuth(c: any): Promise<
+  { ok: true; userId: string } | { ok: false; response: Response }
+> {
+  const userId = await getUserId(c);
+  if (!userId) {
+    return {
+      ok: false,
+      response: c.json({ error: "Unauthorized - valid auth token required" }, 401),
+    };
+  }
+  return { ok: true, userId };
+}
+
 // Enable logger
 app.use('*', logger(console.log));
 
@@ -32,13 +114,47 @@ app.use('*', logger(console.log));
 app.use(
   "/*",
   cors({
-    origin: "*",
+    origin: (origin) => {
+      if (!origin) return "";
+      return ALLOWED_ORIGINS.has(origin) ? origin : "";
+    },
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
   }),
 );
+
+app.use("/make-server-1fc434d6/ai/*", async (c, next) => {
+  const auth = await requireAuth(c);
+  if (!auth.ok) return auth.response;
+  const rl = await enforceRateLimit(`ai:${auth.userId}`, 60, 60_000);
+  if (!rl.ok) {
+    return c.json(
+      { error: "Rate limit exceeded for AI endpoints", retryAfterSec: rl.retryAfterSec },
+      429,
+    );
+  }
+  await next();
+});
+
+app.use("/make-server-1fc434d6/speech/*", async (c, next) => {
+  const auth = await requireAuth(c);
+  if (!auth.ok) return auth.response;
+  const rl = await enforceRateLimit(`speech:${auth.userId}`, 30, 60_000);
+  if (!rl.ok) {
+    return c.json(
+      { error: "Rate limit exceeded for speech endpoint", retryAfterSec: rl.retryAfterSec },
+      429,
+    );
+  }
+  await next();
+});
+
+app.onError((err, c) => {
+  captureServerError(`server:${c.req.path}`, err);
+  return c.json({ error: "Internal Server Error" }, 500);
+});
 
 // Health check endpoint
 app.get("/make-server-1fc434d6/health", (c) => {
@@ -49,10 +165,29 @@ app.get("/make-server-1fc434d6/health", (c) => {
 
 app.post("/make-server-1fc434d6/auth/signup", async (c) => {
   try {
+    const signupSecret = Deno.env.get("SIGNUP_API_SECRET");
+    if (signupSecret) {
+      const provided = c.req.header("x-signup-secret");
+      if (provided !== signupSecret) {
+        return c.json({ error: "Forbidden" }, 403);
+      }
+    }
+
+    const ip = getClientIp(c);
+    const ipRl = await enforceRateLimit(`signup:ip:${ip}`, 10, 60 * 60 * 1000);
+    if (!ipRl.ok) {
+      return c.json({ error: "Too many signup attempts from this IP", retryAfterSec: ipRl.retryAfterSec }, 429);
+    }
+
     const { email, password, name } = await c.req.json();
 
     if (!email || !password) {
       return c.json({ error: "email and password are required" }, 400);
+    }
+
+    const emailRl = await enforceRateLimit(`signup:email:${String(email).toLowerCase()}`, 3, 60 * 60 * 1000);
+    if (!emailRl.ok) {
+      return c.json({ error: "Too many signup attempts for this email", retryAfterSec: emailRl.retryAfterSec }, 429);
     }
 
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
@@ -91,9 +226,16 @@ app.post("/make-server-1fc434d6/sync/save", async (c) => {
 
     const prefix = `ffu_${userId}`;
 
+    const nowIso = new Date().toISOString();
     await kv.mset(
-      [`${prefix}_corpus`, `${prefix}_errors`, `${prefix}_stuck`, `${prefix}_learned`],
-      [corpus || [], errorBank || [], stuckPoints || [], learnedCollocations || []]
+      [`${prefix}_corpus`, `${prefix}_errors`, `${prefix}_stuck`, `${prefix}_learned`, `${prefix}_sync_meta`],
+      [
+        corpus || [],
+        errorBank || [],
+        stuckPoints || [],
+        learnedCollocations || [],
+        { updatedAt: nowIso, corpusAt: nowIso, errorsAt: nowIso, stuckAt: nowIso, learnedAt: nowIso },
+      ]
     );
 
     console.log(`Data saved for user: ${userId}, corpus: ${(corpus || []).length}, errors: ${(errorBank || []).length}`);
@@ -113,22 +255,31 @@ app.get("/make-server-1fc434d6/sync/load", async (c) => {
       return c.json({ error: "Unauthorized - valid auth token required" }, 401);
     }
 
+    const since = c.req.query("since") || "";
     const prefix = `ffu_${userId}`;
 
-    const [corpus, errorBank, stuckPoints, learnedCollocations] = await kv.mget([
+    const [corpus, errorBank, stuckPoints, learnedCollocations, syncMeta] = await kv.mget([
       `${prefix}_corpus`,
       `${prefix}_errors`,
       `${prefix}_stuck`,
       `${prefix}_learned`,
+      `${prefix}_sync_meta`,
     ]);
+    const meta = (syncMeta && typeof syncMeta === "object") ? syncMeta as Record<string, string> : {};
+    const pickSince = (payload: unknown, at?: string) => {
+      if (!since) return payload;
+      if (!at) return payload;
+      return at > since ? payload : undefined;
+    };
 
     console.log(`Data loaded for user: ${userId}`);
 
     return c.json({
-      corpus: corpus || [],
-      errorBank: errorBank || [],
-      stuckPoints: stuckPoints || [],
-      learnedCollocations: learnedCollocations || [],
+      corpus: pickSince(corpus || [], meta.corpusAt),
+      errorBank: pickSince(errorBank || [], meta.errorsAt),
+      stuckPoints: pickSince(stuckPoints || [], meta.stuckAt),
+      learnedCollocations: pickSince(learnedCollocations || [], meta.learnedAt),
+      serverTimestamp: meta.updatedAt || new Date().toISOString(),
     });
   } catch (err) {
     console.log(`Error loading sync data: ${err}`);
@@ -233,14 +384,17 @@ Respond ONLY with valid JSON (no markdown, no code blocks). Use this exact forma
 }
 
 Rules:
-- Check grammar, tense, articles, prepositions, punctuation, capitalization, subject-verb agreement, word order
-- Check if the collocation "${collocation}" is used correctly and naturally
+- The learner MUST use the exact target collocation "${collocation}" (fixed exercise phrase, not optional).
+- Check grammar, tense, articles, prepositions, punctuation, capitalization, subject-verb agreement, word order.
+- The collocation must appear and be grammatically valid. If it is used correctly, set isCorrect to true even if a near-synonym might be more common in some contexts — DO NOT mark incorrect solely for preferring a synonym (e.g. take a break vs have a break).
+- NEVER tell the learner to replace "${collocation}" with a different similar-meaning phrase; that breaks the exercise.
+- Only flag the collocation if it is actually misused (wrong preposition, form, etc.).
 - Sentence must start with capital letter and end with . ! or ?
 - First person pronoun must be uppercase "I"
 - If the sentence is too short (fewer than 4 words), flag it as incomplete
 - Descriptions and hints must be in Chinese
-- Do NOT provide the corrected sentence - only hints to guide the learner
-- Be strict but fair - the goal is to help learners improve`;
+- Do NOT provide the full corrected sentence - only hints to guide the learner
+- Be strict on real grammar errors but fair on the assigned collocation`;
 
     const result = await callDeepSeek([
       { role: "system", content: systemPrompt },

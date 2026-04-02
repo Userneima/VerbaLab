@@ -1,5 +1,13 @@
 import { projectId, publicAnonKey, functionSlug } from '/utils/supabase/info';
+import type {
+  CorpusEntry,
+  ErrorBankEntry,
+  StuckPointEntry,
+  VocabCard,
+} from '../store/useStore';
+import type { FoundryExampleOverridePack } from './syncMerge';
 import { supabase } from './supabase';
+import { z } from 'zod';
 
 const BASE_URL = `https://${projectId}.supabase.co/functions/v1/${functionSlug}`;
 
@@ -14,6 +22,18 @@ const authHeaders = (accessToken: string) => ({
   apikey: publicAnonKey,
   'Authorization': `Bearer ${accessToken}`,
 });
+
+async function parseErrorResponse(resp: Response): Promise<string> {
+  const rawText = await resp.text().catch(() => '');
+  let errMsg: string | undefined;
+  try {
+    const maybeJson = rawText ? JSON.parse(rawText) : null;
+    errMsg = maybeJson?.error;
+  } catch {
+    errMsg = undefined;
+  }
+  return errMsg || rawText || resp.statusText || `HTTP ${resp.status}`;
+}
 
 let refreshInFlight: Promise<string | null> | null = null;
 
@@ -59,76 +79,95 @@ async function maybeRefreshAndRetry<T>(
 
 // ========== Data Sync ==========
 
+export type SyncLearningPayload = {
+  corpus: CorpusEntry[];
+  errorBank: ErrorBankEntry[];
+  stuckPoints: StuckPointEntry[];
+  learnedCollocations: string[];
+  vocabCards?: VocabCard[];
+  /** 资产区：按搭配 id 存自定义例句包 */
+  foundryExampleOverrides?: Record<string, FoundryExampleOverridePack>;
+};
+
+export type SyncLoadResult = SyncLearningPayload & { serverTimestamp?: string };
+
+const foundryPackSchema = z.object({
+  items: z.array(z.object({ content: z.string(), chinese: z.string().optional() })),
+  updatedAt: z.string(),
+});
+const syncLoadSchema = z.object({
+  corpus: z.array(z.unknown()).default([]),
+  errorBank: z.array(z.unknown()).default([]),
+  stuckPoints: z.array(z.unknown()).default([]),
+  learnedCollocations: z.array(z.string()).default([]),
+  vocabCards: z.array(z.unknown()).default([]),
+  foundryExampleOverrides: z.record(z.string(), foundryPackSchema).default({}),
+  serverTimestamp: z.string().optional(),
+});
+
+function parseSyncLoadResult(raw: unknown): SyncLoadResult {
+  const parsed = syncLoadSchema.parse(raw);
+  return {
+    corpus: parsed.corpus as CorpusEntry[],
+    errorBank: parsed.errorBank as ErrorBankEntry[],
+    stuckPoints: parsed.stuckPoints as StuckPointEntry[],
+    learnedCollocations: parsed.learnedCollocations,
+    vocabCards: parsed.vocabCards as VocabCard[],
+    foundryExampleOverrides: parsed.foundryExampleOverrides as Record<string, FoundryExampleOverridePack>,
+    serverTimestamp: parsed.serverTimestamp,
+  };
+}
+
+export const __apiTestables = {
+  parseSyncLoadResult,
+};
+
 export async function syncSave(
   _accessToken: string,
-  data: {
-    corpus: any[];
-    errorBank: any[];
-    stuckPoints: any[];
-    learnedCollocations: string[];
-    vocabCards?: any[];
-  }
+  data: SyncLearningPayload
 ): Promise<{ success: boolean; timestamp: string }> {
   const token = await getValidAccessToken();
 
-  const doSave = async (t: string) => {
+  const doSave = async (t: string): Promise<{ success: boolean; timestamp: string }> => {
     const resp = await fetch(`${BASE_URL}/sync/save`, {
       method: 'POST',
       headers: authHeaders(t),
       body: JSON.stringify(data),
     });
     if (!resp.ok) {
-      const rawText = await resp.text().catch(() => '');
-      let errMsg: string | undefined;
-      try {
-        const maybeJson = rawText ? JSON.parse(rawText) : null;
-        errMsg = maybeJson?.error;
-      } catch {
-        errMsg = undefined;
-      }
-      const detail = errMsg || rawText || resp.statusText || `HTTP ${resp.status}`;
+      const detail = await parseErrorResponse(resp);
       console.error('Sync save error:', { status: resp.status, statusText: resp.statusText, detail });
       if (resp.status === 401) {
         return maybeRefreshAndRetry(doSave, detail, 1);
       }
       throw new Error(detail || 'Failed to save data');
     }
-    return resp.json();
+    const body: unknown = await resp.json();
+    return body as { success: boolean; timestamp: string };
   };
 
   return doSave(token);
 }
 
-export async function syncLoad(_accessToken: string): Promise<{
-  corpus: any[];
-  errorBank: any[];
-  stuckPoints: any[];
-  learnedCollocations: string[];
-  vocabCards?: any[];
-}> {
+export async function syncLoad(_accessToken: string, since?: string | null): Promise<SyncLoadResult> {
   const token = await getValidAccessToken();
 
-  const doLoad = async (t: string) => {
-    const resp = await fetch(`${BASE_URL}/sync/load`, {
+  const doLoad = async (t: string): Promise<SyncLoadResult> => {
+    const url = new URL(`${BASE_URL}/sync/load`);
+    if (since) url.searchParams.set('since', since);
+    const resp = await fetch(url.toString(), {
       headers: authHeaders(t),
     });
     if (!resp.ok) {
-      const rawText = await resp.text().catch(() => '');
-      let errMsg: string | undefined;
-      try {
-        const maybeJson = rawText ? JSON.parse(rawText) : null;
-        errMsg = maybeJson?.error;
-      } catch {
-        errMsg = undefined;
-      }
-      const detail = errMsg || rawText || resp.statusText || `HTTP ${resp.status}`;
+      const detail = await parseErrorResponse(resp);
       console.error('Sync load error:', { status: resp.status, statusText: resp.statusText, detail });
       if (resp.status === 401) {
         return maybeRefreshAndRetry(doLoad, detail, 1);
       }
       throw new Error(detail || 'Failed to load data');
     }
-    return resp.json();
+    const json: unknown = await resp.json();
+    return parseSyncLoadResult(json);
   };
 
   return doLoad(token);
@@ -141,9 +180,9 @@ export async function getSpeechToken(): Promise<{ token: string; region: string 
     headers: headers(),
   });
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: resp.statusText }));
-    console.error('Speech token error:', err);
-    throw new Error(err.error || 'Failed to get speech token');
+    const detail = await parseErrorResponse(resp);
+    console.error('Speech token error:', detail);
+    throw new Error(detail || 'Failed to get speech token');
   }
   return resp.json();
 }
@@ -166,9 +205,9 @@ export async function aiGrammarCheck(sentence: string, collocation: string): Pro
     body: JSON.stringify({ sentence, collocation }),
   });
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: resp.statusText }));
-    console.error('AI grammar check error:', err);
-    throw new Error(err.error || 'Grammar check failed');
+    const detail = await parseErrorResponse(resp);
+    console.error('AI grammar check error:', detail);
+    throw new Error(detail || 'Grammar check failed');
   }
   return resp.json();
 }
@@ -188,9 +227,9 @@ export async function aiGrammarTutor(payload: {
     body: JSON.stringify(payload),
   });
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: resp.statusText }));
-    console.error('AI grammar tutor error:', err);
-    throw new Error(err.error || 'Grammar tutor failed');
+    const detail = await parseErrorResponse(resp);
+    console.error('AI grammar tutor error:', detail);
+    throw new Error(detail || 'Grammar tutor failed');
   }
   return resp.json();
 }
@@ -204,9 +243,9 @@ export async function aiTranslateSentence(text: string): Promise<{ translation: 
     body: JSON.stringify({ text }),
   });
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: resp.statusText }));
-    console.error('AI translate-sentence error:', err);
-    throw new Error(err.error || 'Translation failed');
+    const detail = await parseErrorResponse(resp);
+    console.error('AI translate-sentence error:', detail);
+    throw new Error(detail || 'Translation failed');
   }
   return resp.json();
 }
@@ -240,9 +279,9 @@ export async function aiStuckSuggest(
     body: JSON.stringify({ chineseThought, corpusSentences, verbCollocations }),
   });
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: resp.statusText }));
-    console.error('AI stuck suggest error:', err);
-    throw new Error(err.error || 'Stuck suggestion failed');
+    const detail = await parseErrorResponse(resp);
+    console.error('AI stuck suggest error:', detail);
+    throw new Error(detail || 'Stuck suggestion failed');
   }
   return resp.json();
 }
@@ -265,9 +304,9 @@ export async function aiEvaluateAnswer(
     body: JSON.stringify({ question, answer, part }),
   });
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: resp.statusText }));
-    console.error('AI evaluate error:', err);
-    throw new Error(err.error || 'Evaluation failed');
+    const detail = await parseErrorResponse(resp);
+    console.error('AI evaluate error:', detail);
+    throw new Error(detail || 'Evaluation failed');
   }
   return resp.json();
 }
@@ -294,20 +333,14 @@ export async function aiGenerateVocabCard(payload: {
     body: JSON.stringify(payload),
   });
   if (!resp.ok) {
-    const raw = await resp.text().catch(() => '');
-    let err: { error?: string } = {};
-    try {
-      err = raw ? JSON.parse(raw) : {};
-    } catch {
-      err = { error: raw || resp.statusText };
-    }
-    console.error('AI vocab-card error:', { status: resp.status, err, raw: raw?.slice?.(0, 200) });
+    const detail = await parseErrorResponse(resp);
+    console.error('AI vocab-card error:', { status: resp.status, detail: detail?.slice?.(0, 200) });
     if (resp.status === 404) {
       throw new Error(
         '词卡接口 404：云端尚未部署最新 Edge 函数。请在项目根目录执行：npx supabase login && npx supabase functions deploy make-server-1fc434d6 --project-ref 你的项目 ref'
       );
     }
-    throw new Error(err.error || raw || 'Vocab card generation failed');
+    throw new Error(detail || 'Vocab card generation failed');
   }
   return resp.json();
 }

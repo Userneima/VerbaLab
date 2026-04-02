@@ -49,7 +49,7 @@ export function VocabReviewPage() {
               {dueCards.map(card => (
                 <li key={card.id}>
                   <Link
-                    to={`/vocab/${card.id}`}
+                    to={`/vocab/${card.id}?review=1`}
                     className="flex items-center justify-between gap-3 w-full p-4 rounded-xl border border-amber-100 bg-amber-50/60 hover:bg-amber-50 transition-colors text-left group"
                   >
                     <div className="min-w-0">

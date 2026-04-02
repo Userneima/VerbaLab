@@ -3,7 +3,7 @@ import { useAuth } from '../store/AuthContext';
 import { Eye, EyeOff, Loader2, Mail, Lock, User } from 'lucide-react';
 
 export function AuthPage() {
-  const { signIn, signUp, error, loading } = useAuth();
+  const { signIn, signUp, error } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,9 +39,9 @@ export function AuthPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-500 rounded-2xl mb-4">
-            <span className="text-white font-bold text-2xl">FF</span>
+            <span className="text-white font-bold text-2xl">VL</span>
           </div>
-          <h1 className="text-white text-2xl font-bold">FluentFlow 2.0</h1>
+          <h1 className="text-white text-2xl font-bold">VerbaLab 2.0</h1>
           <p className="text-slate-400 text-sm mt-1">动词驱动 · 建立你的英语弹药库</p>
         </div>
 

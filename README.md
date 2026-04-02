@@ -40,4 +40,18 @@ npx supabase functions deploy make-server-1fc434d6 --project-ref <你的 Supabas
 ```
 
 `Project ID` 与 `utils/supabase/info.tsx` 里的 `VITE_SUPABASE_PROJECT_ID` 一致。部署后需在 Supabase 项目环境变量中配置 `DEEPSEEK_API_KEY`（以及语音等已有变量）。
-  
+
+### 密钥与安全
+
+- **Service role**（如 `SUPABASE_SERVICE_ROLE_KEY`）仅放在 **Supabase Edge / 服务端密钥**，不要写入前端 `.env` 或任何 `VITE_*` 变量；前端只用 **anon** + 用户登录后的 **access token**。
+- 修改同步或 AI 相关 Edge 逻辑后，请执行一次 `npx supabase functions deploy ...`（见上文），与前端保持同期发布。
+
+### 本地脚本（CI 对齐）
+
+```bash
+npm run typecheck   # TypeScript
+npm run test        # Vitest
+npm run build       # 生产构建
+```
+
+GitHub Actions 会对上述命令及 `deno check supabase/functions/make-server-1fc434d6/index.ts` 做校验。
