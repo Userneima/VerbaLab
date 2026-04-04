@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router';
-import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Library, ChevronRight, BookMarked, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
-import { IELTS_QUESTIONS, getDailyCollocations } from '../data/verbData';
+import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Library, ChevronRight, BookMarked, HelpCircle } from 'lucide-react';
+import { getDailyCollocations } from '../data/verbData';
 import { aiGenerateVocabCard } from '../utils/api';
 import { scenarioTagsFromVocabItems } from '../utils/vocabCardScenarioTags';
 import { useStore } from '../store/StoreContext';
@@ -15,8 +15,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 
-/** 控制单次生成体量，避免 prompt 过大、等待过久 */
-const VOCAB_LAB_QUESTION_COUNT = 3;
+/** 搭配抽样数量：供模型白名单选用 */
 const VOCAB_LAB_COLLOCATION_COUNT = 12;
 
 function shuffle<T>(arr: T[]): T[] {
@@ -38,9 +37,13 @@ export function WordLabPage() {
   const [preview, setPreview] = useState<{
     tags: string[];
     items: VocabCardItem[];
+    spokenPracticePhrase: string;
+    writtenSupplement: string | null;
+    registerNoteZh?: string;
+    spokenAlternatives: string[];
+    isCommonInSpokenEnglish: boolean;
   } | null>(null);
   const [extraTags, setExtraTags] = useState('');
-  const [showGenerateTips, setShowGenerateTips] = useState(false);
   const [senseHelpOpen, setSenseHelpOpen] = useState(false);
   const [dupPromptOpen, setDupPromptOpen] = useState(false);
   const [dupExistingCardId, setDupExistingCardId] = useState<string | null>(null);
@@ -61,7 +64,6 @@ export function WordLabPage() {
     setError(null);
     setPreview(null);
     try {
-      const questions = shuffle([...IELTS_QUESTIONS]).slice(0, VOCAB_LAB_QUESTION_COUNT);
       const collocations = shuffle(getDailyCollocations())
         .slice(0, VOCAB_LAB_COLLOCATION_COUNT)
         .map(({ verb, collocation }) => ({
@@ -72,36 +74,27 @@ export function WordLabPage() {
       const res = await aiGenerateVocabCard({
         headword: hw,
         sense: sense.trim() || undefined,
-        questions,
         collocations,
       });
-      const qMap = new Map(questions.map(q => [q.id, q]));
-      const items: VocabCardItem[] = res.items.map((it, i) => {
-        const q = qMap.get(it.questionId);
-        if (!q) {
-          return {
-            id: `tmp-${i}`,
-            questionId: it.questionId,
-            part: 1,
-            topic: '',
-            questionSnapshot: '',
-            sentence: it.sentence,
-            collocationsUsed: it.collocationsUsed,
-            chinese: it.chinese,
-          };
-        }
-        return {
-          id: `tmp-${i}`,
-          questionId: q.id,
-          part: q.part,
-          topic: q.topic,
-          questionSnapshot: q.question,
-          sentence: it.sentence,
-          collocationsUsed: it.collocationsUsed,
-          chinese: it.chinese,
-        };
+      const items: VocabCardItem[] = res.items.map((it, i) => ({
+        id: `tmp-${i}`,
+        questionId: 'daily',
+        part: 0,
+        topic: '日常用语',
+        questionSnapshot: '',
+        sentence: it.sentence,
+        collocationsUsed: it.collocationsUsed,
+        chinese: it.chinese,
+      }));
+      setPreview({
+        tags: scenarioTagsFromVocabItems(items),
+        items,
+        spokenPracticePhrase: res.spokenPracticePhrase,
+        writtenSupplement: res.writtenSupplement,
+        registerNoteZh: res.registerNoteZh,
+        spokenAlternatives: res.spokenAlternatives,
+        isCommonInSpokenEnglish: res.isCommonInSpokenEnglish,
       });
-      setPreview({ tags: scenarioTagsFromVocabItems(items), items });
     } catch (e: any) {
       setError(e?.message || '生成失败');
     } finally {
@@ -121,8 +114,13 @@ export function WordLabPage() {
       sense: sense.trim() || undefined,
       tags: uniq,
       items: preview.items,
+      spokenPracticePhrase: preview.spokenPracticePhrase,
+      writtenSupplement: preview.writtenSupplement ?? undefined,
+      registerNoteZh: preview.registerNoteZh,
+      spokenAlternatives: preview.spokenAlternatives,
+      isCommonInSpokenEnglish: preview.isCommonInSpokenEnglish,
     });
-    navigate('/corpus?tab=cards');
+    navigate('/vocab-review');
   }, [preview, extraTags, headword, sense, store, navigate]);
 
   const normalizeCardInput = useCallback((s: string) => s.trim().toLowerCase(), []);
@@ -152,40 +150,18 @@ export function WordLabPage() {
   }, [preview, headword, sense, store.vocabCards, normalizeCardInput, saveCardDirect]);
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Sparkles size={20} className="text-violet-500 shrink-0" />
-            <h1 className="font-bold text-gray-800 text-base sm:text-lg">词卡工坊</h1>
-          </div>
-          <p className="text-gray-400 text-sm mt-0.5 max-w-2xl">
-            输入目标词，AI 会结合实战仓雅思模拟题与资产区日常搭配，生成多条「一题一句」语料；保存后进入语料库的「单词卡片」并参与复习提醒。
-          </p>
+    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-white">
+      <div className="shrink-0 border-b border-gray-100 px-4 sm:px-6 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Sparkles size={20} className="text-violet-500 shrink-0" />
+          <h1 className="font-bold text-gray-800 text-base sm:text-lg">词卡工坊</h1>
         </div>
+      </div>
 
-        <div
-          className={`p-4 sm:p-6 pb-safe sm:pb-6 max-w-6xl ${
-            preview ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:gap-5 lg:items-start' : ''
-          }`}
-        >
-          <div className={`space-y-5 ${preview ? '' : 'lg:max-w-2xl'}`}>
-            <div className="rounded-xl border border-violet-100 bg-violet-50/80">
-              <button
-                type="button"
-                onClick={() => setShowGenerateTips(v => !v)}
-                className="w-full flex items-center justify-between px-4 py-2.5 text-violet-900 hover:bg-violet-100/60 rounded-xl transition-colors"
-              >
-                <span className="text-sm font-medium">生成规则说明</span>
-                {showGenerateTips ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-              </button>
-              {showGenerateTips && (
-                <p className="px-4 pb-3 text-violet-800/90 text-xs leading-relaxed">
-                  当前使用 DeepSeek 生成口语优先短句：每次抽取 {VOCAB_LAB_QUESTION_COUNT} 道题和约 {VOCAB_LAB_COLLOCATION_COUNT} 条日常搭配作为约束，每题生成 1 句，并至少命中 1 个白名单搭配。若风格不满意可点「重新生成」换一批题目与搭配。
-                </p>
-              )}
-            </div>
-
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
+        {/* 左：新建 */}
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-6 pb-safe">
+          <div className="space-y-4 max-w-xl lg:max-w-none">
             <div>
             <label className="block text-sm font-medium text-gray-600 mb-1.5">目标词 / 短语（英文）</label>
             <input
@@ -228,7 +204,7 @@ export function WordLabPage() {
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors"
               >
                 {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                {loading ? '生成中…' : '生成语料卡片'}
+                {loading ? '生成中…' : '生成单词卡片'}
               </button>
               {preview && (
                 <button
@@ -245,7 +221,7 @@ export function WordLabPage() {
 
           <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-4 space-y-3">
             <Link
-              to="/corpus?tab=cards"
+              to="/vocab-review"
               className="flex items-center justify-between gap-3 p-3 rounded-lg bg-white border border-violet-100 shadow-sm hover:border-violet-200 hover:bg-violet-50/40 transition-colors group"
             >
               <div className="flex items-center gap-3 min-w-0">
@@ -255,7 +231,7 @@ export function WordLabPage() {
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-gray-800">单词卡片仓库</div>
                   <div className="text-xs text-gray-500 mt-0.5">
-                    语料库 · 单词卡片 · 共 {store.vocabCards.length} 张
+                    全部词卡瀑布流 · 共 {store.vocabCards.length} 张
                   </div>
                 </div>
               </div>
@@ -304,52 +280,76 @@ export function WordLabPage() {
             </div>
           </div>
           </div>
+        </div>
 
-          {preview && (
+        {/* 右：预览（各占一半宽度） */}
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-6 pb-safe bg-slate-50/80">
+          {!preview ? (
             <div
               ref={previewRef}
-              className="mt-5 lg:mt-0 lg:sticky lg:top-4 space-y-4 border border-gray-100 rounded-2xl p-4 sm:p-5 bg-white shadow-sm"
+              className="h-full min-h-[12rem] flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white/80 px-4 py-8 text-center"
             >
-              <h2 className="font-semibold text-gray-800 flex items-center gap-2">
-                <BookOpen size={18} className="text-indigo-500" />
+              <BookOpen size={28} className="text-gray-300 mb-2" />
+              <p className="text-sm text-gray-500">在左侧输入目标词并生成后，预览将显示在此</p>
+            </div>
+          ) : (
+            <div ref={previewRef} className="space-y-3 border border-gray-200 rounded-xl p-3 sm:p-4 bg-white shadow-sm">
+              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                <BookOpen size={16} className="text-indigo-500 shrink-0" />
                 预览 · {headword.trim()}
               </h2>
-              <div>
-                <p className="text-xs text-gray-500 mb-1.5">应用场景（按本题卡内的口语题自动归类）</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {preview.tags.map(t => (
-                    <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-violet-50 text-violet-800 border border-violet-100">
-                      {t}
-                    </span>
-                  ))}
+              <div className="rounded-lg border border-gray-100 bg-gray-50/90 px-3 py-2.5 text-[13px] leading-snug space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      preview.isCommonInSpokenEnglish
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-900'
+                    }`}
+                  >
+                    {preview.isCommonInSpokenEnglish ? '口语常用' : '偏书面/少口语'}
+                  </span>
                 </div>
+                <p className="text-gray-900">
+                  <span className="text-gray-400 text-[10px] uppercase tracking-wide mr-1">练习</span>
+                  {preview.spokenPracticePhrase}
+                </p>
+                {preview.writtenSupplement && (
+                  <p className="text-gray-600 text-[11px]">书面：{preview.writtenSupplement}</p>
+                )}
+                {preview.registerNoteZh && (
+                  <p className="text-[11px] text-violet-800/90 leading-relaxed">{preview.registerNoteZh}</p>
+                )}
+                {preview.spokenAlternatives.length > 1 && (
+                  <p className="text-[10px] text-gray-500 leading-relaxed">
+                    参考：{preview.spokenAlternatives.join(' · ')}
+                  </p>
+                )}
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">追加应用场景（可选，逗号分隔）</label>
+              <div className="flex flex-wrap gap-1">
+                {preview.tags.map(t => (
+                  <span key={t} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-800 border border-violet-100">
+                    {t}
+                  </span>
+                ))}
+              </div>
+              <label className="block">
+                <span className="text-[10px] text-gray-400 mb-1 block">追加标签（可选）</span>
                 <input
                   value={extraTags}
                   onChange={e => setExtraTags(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-400"
-                  placeholder="如：面试、学术写作…"
+                  className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-violet-400"
+                  placeholder="逗号分隔，如 面试、写作"
                 />
-              </div>
-              <div className="space-y-3 max-h-[min(55vh,28rem)] overflow-y-auto pr-1">
+              </label>
+              <div className="text-[13px] text-gray-800 leading-relaxed border border-gray-100 rounded-lg p-2.5 bg-gray-50/80">
                 {preview.items.map(it => (
-                  <div key={it.id} className="border border-gray-100 rounded-xl p-3 bg-gray-50/80">
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      <span className="text-xs font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">
-                        Part {it.part}
-                      </span>
-                      <span className="text-xs text-gray-500">{it.topic}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mb-1.5 leading-relaxed">{it.questionSnapshot}</p>
-                    <p className="text-sm text-gray-800 font-medium leading-relaxed">{it.sentence}</p>
-                    {it.chinese && (
-                      <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-200">{it.chinese}</p>
-                    )}
-                    <div className="flex flex-wrap gap-1 mt-2">
+                  <div key={it.id}>
+                    <p className="font-medium">{it.sentence}</p>
+                    {it.chinese && <p className="text-gray-500 text-xs mt-1">{it.chinese}</p>}
+                    <div className="flex flex-wrap gap-1 mt-1.5">
                       {it.collocationsUsed.map(p => (
-                        <span key={p} className="text-[11px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
+                        <span key={p} className="text-[10px] bg-emerald-100/90 text-emerald-900 px-1 py-0.5 rounded">
                           {p}
                         </span>
                       ))}
@@ -360,10 +360,10 @@ export function WordLabPage() {
               <button
                 type="button"
                 onClick={saveCard}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
               >
                 <Save size={16} />
-                保存到语料库（单词卡片）
+                保存单词卡片
               </button>
             </div>
           )}

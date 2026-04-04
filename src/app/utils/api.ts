@@ -11,17 +11,23 @@ import { z } from 'zod';
 
 const BASE_URL = `https://${projectId}.supabase.co/functions/v1/${functionSlug}`;
 
-const headers = () => ({
-  'Content-Type': 'application/json',
-  'Authorization': `Bearer ${publicAnonKey}`,
-});
-
 // Create auth headers using the user's access token
 const authHeaders = (accessToken: string) => ({
   'Content-Type': 'application/json',
   apikey: publicAnonKey,
   'Authorization': `Bearer ${accessToken}`,
 });
+
+/** fetch 级失败（含 CORS、断网、DNS）在浏览器里多为 TypeError: Failed to fetch */
+function mapFetchFailureToMessage(err: unknown): Error {
+  const m = err instanceof Error ? err.message : String(err);
+  if (/failed to fetch|load failed|networkerror|network request failed/i.test(m)) {
+    return new Error(
+      '无法连接词卡/AI 服务（网络请求失败）。请检查：是否已登录；网络是否正常；若部署在 Vercel 等线上地址，需在 Supabase Edge 函数环境变量 CORS_ALLOW_ORIGINS 中加入你的站点完整 Origin（含 https）。本地开发可使用任意 localhost 端口；修改 CORS 后请重新部署函数 make-server-1fc434d6。'
+    );
+  }
+  return err instanceof Error ? err : new Error(m);
+}
 
 async function parseErrorResponse(resp: Response): Promise<string> {
   const rawText = await resp.text().catch(() => '');
@@ -75,6 +81,63 @@ async function maybeRefreshAndRetry<T>(
   }
 
   return fn(token);
+}
+
+/** Edge `/ai/*` and `/speech/*` require a logged-in user JWT (rate limit per user). */
+async function getAiJson<T>(path: string): Promise<T> {
+  let token: string;
+  try {
+    token = await getValidAccessToken();
+  } catch (e) {
+    throw mapFetchFailureToMessage(e);
+  }
+  const attempt = async (t: string): Promise<T> => {
+    let resp: Response;
+    try {
+      resp = await fetch(`${BASE_URL}${path}`, { headers: authHeaders(t) });
+    } catch (e) {
+      throw mapFetchFailureToMessage(e);
+    }
+    if (!resp.ok) {
+      const detail = await parseErrorResponse(resp);
+      if (resp.status === 401) {
+        return maybeRefreshAndRetry((t2) => attempt(t2), detail, 1);
+      }
+      throw new Error(detail || 'Request failed');
+    }
+    return resp.json() as Promise<T>;
+  };
+  return attempt(token);
+}
+
+async function postAiJson<T>(path: string, body: unknown): Promise<T> {
+  let token: string;
+  try {
+    token = await getValidAccessToken();
+  } catch (e) {
+    throw mapFetchFailureToMessage(e);
+  }
+  const attempt = async (t: string): Promise<T> => {
+    let resp: Response;
+    try {
+      resp = await fetch(`${BASE_URL}${path}`, {
+        method: 'POST',
+        headers: authHeaders(t),
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      throw mapFetchFailureToMessage(e);
+    }
+    if (!resp.ok) {
+      const detail = await parseErrorResponse(resp);
+      if (resp.status === 401) {
+        return maybeRefreshAndRetry((t2) => attempt(t2), detail, 1);
+      }
+      throw new Error(detail || 'Request failed');
+    }
+    return resp.json() as Promise<T>;
+  };
+  return attempt(token);
 }
 
 // ========== Data Sync ==========
@@ -176,21 +239,20 @@ export async function syncLoad(_accessToken: string, since?: string | null): Pro
 // ========== Azure Speech Token ==========
 
 export async function getSpeechToken(): Promise<{ token: string; region: string }> {
-  const resp = await fetch(`${BASE_URL}/speech/token`, {
-    headers: headers(),
-  });
-  if (!resp.ok) {
-    const detail = await parseErrorResponse(resp);
-    console.error('Speech token error:', detail);
-    throw new Error(detail || 'Failed to get speech token');
+  try {
+    return await getAiJson<{ token: string; region: string }>('/speech/token');
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Failed to get speech token';
+    console.error('Speech token error:', msg);
+    throw new Error(msg);
   }
-  return resp.json();
 }
 
 // ========== DeepSeek AI ==========
 
 export async function aiGrammarCheck(sentence: string, collocation: string): Promise<{
   isCorrect: boolean;
+  correctedSentence?: string;
   errors: Array<{
     type: string;
     description: string;
@@ -199,17 +261,13 @@ export async function aiGrammarCheck(sentence: string, collocation: string): Pro
   }>;
   overallHint: string;
 }> {
-  const resp = await fetch(`${BASE_URL}/ai/grammar-check`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({ sentence, collocation }),
-  });
-  if (!resp.ok) {
-    const detail = await parseErrorResponse(resp);
-    console.error('AI grammar check error:', detail);
-    throw new Error(detail || 'Grammar check failed');
+  try {
+    return await postAiJson('/ai/grammar-check', { sentence, collocation });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Grammar check failed';
+    console.error('AI grammar check error:', msg);
+    throw new Error(msg);
   }
-  return resp.json();
 }
 
 /** 实验室：语法未通过后的追问，用中文讲解语法点（不代改原句） */
@@ -221,33 +279,25 @@ export async function aiGrammarTutor(payload: {
   overallHint: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
 }): Promise<{ reply: string }> {
-  const resp = await fetch(`${BASE_URL}/ai/grammar-tutor`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(payload),
-  });
-  if (!resp.ok) {
-    const detail = await parseErrorResponse(resp);
-    console.error('AI grammar tutor error:', detail);
-    throw new Error(detail || 'Grammar tutor failed');
+  try {
+    return await postAiJson('/ai/grammar-tutor', payload);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Grammar tutor failed';
+    console.error('AI grammar tutor error:', msg);
+    throw new Error(msg);
   }
-  return resp.json();
 }
 
 /** 检测语法正确但为中式英语的句子，返回母语者版本与思路 */
 /** 将英文例句译为自然中文（个人语料库等） */
 export async function aiTranslateSentence(text: string): Promise<{ translation: string }> {
-  const resp = await fetch(`${BASE_URL}/ai/translate-sentence`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({ text }),
-  });
-  if (!resp.ok) {
-    const detail = await parseErrorResponse(resp);
-    console.error('AI translate-sentence error:', detail);
-    throw new Error(detail || 'Translation failed');
+  try {
+    return await postAiJson('/ai/translate-sentence', { text });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Translation failed';
+    console.error('AI translate-sentence error:', msg);
+    throw new Error(msg);
   }
-  return resp.json();
 }
 
 export async function aiChinglishCheck(sentence: string, collocation: string): Promise<{
@@ -256,13 +306,7 @@ export async function aiChinglishCheck(sentence: string, collocation: string): P
   nativeThinking?: string;
 }> {
   try {
-    const resp = await fetch(`${BASE_URL}/ai/chinglish-check`, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ sentence, collocation }),
-    });
-    if (!resp.ok) return { isChinglish: false };
-    return resp.json();
+    return await postAiJson('/ai/chinglish-check', { sentence, collocation });
   } catch {
     return { isChinglish: false };
   }
@@ -273,17 +317,17 @@ export async function aiStuckSuggest(
   corpusSentences: Array<{ userSentence: string; collocation: string; verb: string }>,
   verbCollocations: Array<{ phrase: string; meaning: string }>
 ): Promise<{ type: 'corpus' | 'verb' | 'paraphrase'; suggestion: string }> {
-  const resp = await fetch(`${BASE_URL}/ai/stuck-suggest`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({ chineseThought, corpusSentences, verbCollocations }),
-  });
-  if (!resp.ok) {
-    const detail = await parseErrorResponse(resp);
-    console.error('AI stuck suggest error:', detail);
-    throw new Error(detail || 'Stuck suggestion failed');
+  try {
+    return await postAiJson('/ai/stuck-suggest', {
+      chineseThought,
+      corpusSentences,
+      verbCollocations,
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Stuck suggestion failed';
+    console.error('AI stuck suggest error:', msg);
+    throw new Error(msg);
   }
-  return resp.json();
 }
 
 export async function aiEvaluateAnswer(
@@ -298,49 +342,49 @@ export async function aiEvaluateAnswer(
   verbsUsed: string[];
   feedback: string[];
 }> {
-  const resp = await fetch(`${BASE_URL}/ai/evaluate-answer`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({ question, answer, part }),
-  });
-  if (!resp.ok) {
-    const detail = await parseErrorResponse(resp);
-    console.error('AI evaluate error:', detail);
-    throw new Error(detail || 'Evaluation failed');
+  try {
+    return await postAiJson('/ai/evaluate-answer', { question, answer, part });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Evaluation failed';
+    console.error('AI evaluate error:', msg);
+    throw new Error(msg);
   }
-  return resp.json();
 }
 
-/** 词卡工坊：按雅思题 + 搭配白名单生成单词多题例句 */
+/** 词卡工坊：语体判断 + 按搭配白名单生成一条日常口语例句 */
 export async function aiGenerateVocabCard(payload: {
   headword: string;
   sense?: string;
-  questions: Array<{ id: string; part: number; topic: string; question: string }>;
   collocations: Array<{ phrase: string; meaning: string; verb: string }>;
 }): Promise<{
   headword: string;
   sense?: string;
+  spokenPracticePhrase: string;
+  isCommonInSpokenEnglish: boolean;
+  spokenAlternatives: string[];
+  writtenSupplement: string | null;
+  registerNoteZh?: string;
   items: Array<{
-    questionId: string;
     sentence: string;
     collocationsUsed: string[];
     chinese?: string;
   }>;
 }> {
-  const resp = await fetch(`${BASE_URL}/ai/vocab-card`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(payload),
-  });
-  if (!resp.ok) {
-    const detail = await parseErrorResponse(resp);
-    console.error('AI vocab-card error:', { status: resp.status, detail: detail?.slice?.(0, 200) });
-    if (resp.status === 404) {
+  try {
+    return await postAiJson('/ai/vocab-card', payload);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Vocab card generation failed';
+    console.error('AI vocab-card error:', { detail: msg?.slice?.(0, 200) });
+    if (/404|not found/i.test(msg)) {
       throw new Error(
         '词卡接口 404：云端尚未部署最新 Edge 函数。请在项目根目录执行：npx supabase login && npx supabase functions deploy make-server-1fc434d6 --project-ref 你的项目 ref'
       );
     }
-    throw new Error(detail || 'Vocab card generation failed');
+    if (/questions array is required/i.test(msg)) {
+      throw new Error(
+        '词卡云端仍是旧版接口（要求 questions）。请重新部署 Edge 函数：npx supabase functions deploy make-server-1fc434d6 --project-ref <Project ID>，与仓库中 supabase/functions/make-server-1fc434d6 代码保持一致。'
+      );
+    }
+    throw new Error(msg);
   }
-  return resp.json();
 }

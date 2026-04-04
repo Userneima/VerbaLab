@@ -10,26 +10,29 @@ import {
   X,
   ChevronDown,
   ChevronUp,
-  Languages,
 } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { isVocabCardDue } from '../utils/vocabCardReview';
 import { pickCollocationForCloze } from '../utils/reviewGate';
 import { VocabReproducePanel } from '../components/VocabReproducePanel';
 
-const QUESTION_PREVIEW_LEN = 100;
+const PREVIEW_LEN = 120;
 
-function truncatePreview(s: string, max = QUESTION_PREVIEW_LEN): string {
+function truncatePreview(s: string, max = PREVIEW_LEN): string {
   const t = s.replace(/\s+/g, ' ').trim();
   if (!t) return '';
   if (t.length <= max) return t;
   return `${t.slice(0, max)}…`;
 }
 
-function itemQuestionLine(it: { questionSnapshot: string; topic: string }): string {
+/** 折叠行主文案：优先题干快照，否则直接展示例句（避免「日常用语」重复三遍） */
+function itemCollapsedPrimaryLine(it: {
+  questionSnapshot: string;
+  sentence: string;
+}): string {
   const q = it.questionSnapshot?.trim();
-  if (q) return q;
-  return it.topic ? `「${it.topic}」` : '口语题';
+  if (q) return truncatePreview(q);
+  return truncatePreview(it.sentence);
 }
 
 export function VocabCardDetailPage() {
@@ -41,13 +44,14 @@ export function VocabCardDetailPage() {
   const [tagInput, setTagInput] = useState('');
   const [tagsEditingOpen, setTagsEditingOpen] = useState(false);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
-  const [zhOpenById, setZhOpenById] = useState<Record<string, boolean>>({});
+  /** true = 用户主动隐藏中文翻译；默认不记录即「默认显示中文」 */
+  const [zhHiddenById, setZhHiddenById] = useState<Record<string, boolean>>({});
   const [passedReproItemIds, setPassedReproItemIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     setTagsEditingOpen(false);
     setTagInput('');
-    setZhOpenById({});
+    setZhHiddenById({});
     setPassedReproItemIds(new Set());
   }, [id]);
 
@@ -64,19 +68,19 @@ export function VocabCardDetailPage() {
   }, [card?.id, itemIdsKey]);
 
   const toggleZh = useCallback((itemId: string) => {
-    setZhOpenById(m => ({ ...m, [itemId]: !m[itemId] }));
+    setZhHiddenById(m => ({ ...m, [itemId]: !m[itemId] }));
   }, []);
 
   useEffect(() => {
-    setZhOpenById({});
+    setZhHiddenById({});
   }, [expandedItemId]);
 
   if (!card) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
         <p className="text-gray-500 text-sm mb-4">找不到这张卡片</p>
-        <Link to="/corpus?tab=cards" className="text-indigo-600 text-sm font-medium hover:underline">
-          返回语料库
+        <Link to="/vocab-review" className="text-indigo-600 text-sm font-medium hover:underline">
+          返回单词卡片
         </Link>
       </div>
     );
@@ -106,59 +110,80 @@ export function VocabCardDetailPage() {
   const targetPhraseForItem = (it: (typeof card.items)[0]) =>
     pickCollocationForCloze(it.sentence, it.collocationsUsed) ||
     it.collocationsUsed[0] ||
+    card.spokenPracticePhrase ||
     card.headword;
 
   return (
-    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-gray-50">
-      <div className="shrink-0 bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4">
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 mb-2"
-        >
-          <ArrowLeft size={16} />
-          返回
-        </button>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <BookMarked size={22} className="text-violet-600 shrink-0" />
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{card.headword}</h1>
+    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-slate-100">
+      <div className="flex-1 min-h-0 flex flex-col p-3 sm:p-4">
+        <div className="max-w-2xl mx-auto w-full flex-1 min-h-0 flex flex-col rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+          {/* —— 图一：顶部信息 —— */}
+          <div className="shrink-0 px-4 pt-3 pb-3 border-b border-gray-100">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800"
+              >
+                <ArrowLeft size={14} />
+                返回
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('确定删除整张单词卡片？')) {
+                    store.deleteVocabCard(card.id);
+                    navigate('/vocab-review');
+                  }
+                }}
+                className="flex items-center gap-1 text-xs text-red-600 px-2 py-1 rounded-lg hover:bg-red-50"
+              >
+                <Trash2 size={14} />
+                删除
+              </button>
             </div>
-            {card.sense && <p className="text-sm text-gray-500 mt-1">{card.sense}</p>}
-            <p className="text-xs text-gray-400 mt-2">
-              复习阶段 {card.reviewStage} · 下次提醒{' '}
-              {card.nextDueAt
-                ? new Date(card.nextDueAt).toLocaleString('zh-CN')
-                : '未设置'}
-            </p>
+            <div className="flex items-start gap-2.5">
+              <div className="w-9 h-9 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+                <BookMarked size={18} className="text-violet-600" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-lg sm:text-xl font-bold text-gray-900">{card.headword}</h1>
+                  {isDue && (
+                    <span className="text-[10px] font-medium bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
+                      待复习
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-gray-500 mt-1.5 space-y-0.5">
+                  {card.spokenPracticePhrase &&
+                    card.spokenPracticePhrase.trim().toLowerCase() !== card.headword.trim().toLowerCase() && (
+                      <p>
+                        口语表述：<span className="text-gray-800">{card.spokenPracticePhrase}</span>
+                      </p>
+                    )}
+                  {card.writtenSupplement && <p>书面：{card.writtenSupplement}</p>}
+                  {card.sense && <p>{card.sense}</p>}
+                  <p className="text-gray-400">
+                    阶段 {card.reviewStage}
+                    {card.nextDueAt
+                      ? ` · 提醒 ${new Date(card.nextDueAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                      : ''}
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (confirm('确定删除整张单词卡片？')) {
-                store.deleteVocabCard(card.id);
-                navigate('/corpus?tab=cards');
-              }
-            }}
-            className="flex items-center gap-1.5 text-sm text-red-600 px-3 py-2 rounded-lg hover:bg-red-50 border border-red-100"
-          >
-            <Trash2 size={15} />
-            删除
-          </button>
-        </div>
-      </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-6 pb-8">
-          <div className="p-4 rounded-xl bg-gray-50 border border-gray-100 space-y-2">
+          {/* 标签（并入同一张卡片） */}
+          <div className="shrink-0 px-4 py-3 border-b border-gray-100 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-medium text-gray-500">应用场景</span>
+              <span className="text-[11px] font-medium text-gray-500">标签</span>
               {!tagsEditingOpen ? (
                 <button
                   type="button"
                   onClick={() => setTagsEditingOpen(true)}
-                  className="text-xs font-medium text-violet-600 hover:text-violet-700 px-2 py-1 rounded-lg hover:bg-violet-50 transition-colors"
+                  className="text-xs font-medium text-violet-600 hover:text-violet-700 px-2 py-0.5 rounded-lg hover:bg-violet-50"
                 >
                   编辑标签
                 </button>
@@ -166,7 +191,7 @@ export function VocabCardDetailPage() {
                 <button
                   type="button"
                   onClick={closeTagEditor}
-                  className="text-xs font-medium text-gray-600 hover:text-gray-800 px-2 py-1 rounded-lg hover:bg-gray-200/60 transition-colors"
+                  className="text-xs font-medium text-gray-600 hover:text-gray-800 px-2 py-0.5 rounded-lg hover:bg-gray-100"
                 >
                   完成
                 </button>
@@ -174,13 +199,13 @@ export function VocabCardDetailPage() {
             </div>
             {!tagsEditingOpen ? (
               card.tags.length === 0 ? (
-                <p className="text-xs text-gray-400 leading-relaxed">暂无标签。需要时点「编辑标签」添加。</p>
+                <p className="text-xs text-gray-400 mt-1">暂无标签</p>
               ) : (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5 mt-2">
                   {card.tags.map((t, i) => (
                     <span
                       key={`${t}-${i}`}
-                      className="text-xs px-2.5 py-1 rounded-full bg-white border border-gray-200 text-gray-700"
+                      className="text-xs px-2 py-0.5 rounded-full bg-gray-50 border border-gray-200 text-gray-700"
                     >
                       {t}
                     </span>
@@ -188,21 +213,19 @@ export function VocabCardDetailPage() {
                 </div>
               )
             ) : (
-              <div className="space-y-3 pt-1">
-                {card.tags.length === 0 ? (
-                  <p className="text-xs text-gray-400">暂无标签，可在下方添加。</p>
-                ) : (
+              <div className="space-y-2 mt-2">
+                {card.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {card.tags.map((t, i) => (
                       <span
                         key={`${t}-${i}`}
-                        className="inline-flex items-center gap-0.5 text-xs pl-2.5 pr-1 py-1 rounded-full bg-white border border-gray-200 text-gray-700"
+                        className="inline-flex items-center gap-0.5 text-xs pl-2 pr-1 py-0.5 rounded-full bg-gray-50 border border-gray-200 text-gray-700"
                       >
                         <span>{t}</span>
                         <button
                           type="button"
                           onClick={() => removeTag(t)}
-                          className="p-0.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          className="p-0.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50"
                           aria-label={`删除标签 ${t}`}
                         >
                           <X size={14} strokeWidth={2} />
@@ -215,13 +238,13 @@ export function VocabCardDetailPage() {
                   <input
                     value={tagInput}
                     onChange={e => setTagInput(e.target.value)}
-                    placeholder="追加应用场景，逗号分隔"
-                    className="flex-1 min-w-[12rem] border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                    placeholder="追加标签，逗号分隔"
+                    className="flex-1 min-w-[10rem] border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm"
                   />
                   <button
                     type="button"
                     onClick={saveTags}
-                    className="px-3 py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-900"
+                    className="px-3 py-1.5 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-900"
                   >
                     添加
                   </button>
@@ -230,39 +253,46 @@ export function VocabCardDetailPage() {
             )}
           </div>
 
-          <div className="space-y-2">
-            <h2 className="font-semibold text-gray-800 text-sm px-0.5">例句与题目</h2>
-            <p className="text-xs text-gray-400 px-0.5 -mt-1 leading-relaxed">
-              折叠时只看题干；点行展开。到期复习时须先完成「填空 + 造句」再查看例句并标记复习结果。同时只展开一条。
-            </p>
+          {/* 例句区：中间可滚动 */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
             <div className="space-y-2">
               {card.items.map(it => {
                 const open = expandedItemId === it.id;
-                const questionText = itemQuestionLine(it);
+                const primaryLine = itemCollapsedPrimaryLine(it);
+                const isDailyWordLab =
+                  it.part === 0 && (it.topic === '日常用语' || !it.questionSnapshot?.trim());
+
                 return (
                   <div
                     key={it.id}
-                    className={`border rounded-xl bg-white shadow-sm overflow-hidden transition-colors ${
-                      open ? 'border-violet-200 ring-1 ring-violet-100' : 'border-gray-100'
+                    className={`rounded-xl border overflow-hidden transition-colors ${
+                      open ? 'border-violet-200 ring-1 ring-violet-100 bg-violet-50/20' : 'border-gray-100 bg-white'
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => setExpandedItemId(open ? null : it.id)}
-                      className="w-full flex items-start gap-2 text-left px-3 py-3 sm:px-4 hover:bg-gray-50/80 transition-colors"
+                      className={`w-full flex gap-2 text-left px-3 py-2.5 hover:bg-gray-50/80 transition-colors ${
+                        open ? 'items-center min-h-[2.75rem]' : 'items-start'
+                      }`}
                     >
-                      <span className="text-xs font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded shrink-0">
-                        Part {it.part}
-                      </span>
+                      {isDailyWordLab ? (
+                        <span className="text-[10px] font-medium bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full shrink-0">
+                          例句
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded shrink-0">
+                          {it.part === 0 ? '日常' : `Part ${it.part}`}
+                        </span>
+                      )}
                       <div className="flex-1 min-w-0">
-                        <span className="text-[11px] text-gray-400 block mb-0.5">{it.topic}</span>
-                        <p
-                          className={`text-gray-700 text-sm leading-snug font-normal ${
-                            open ? '' : 'line-clamp-3'
-                          }`}
-                        >
-                          {open ? questionText : truncatePreview(questionText)}
-                        </p>
+                        {!isDailyWordLab && it.topic && !open && (
+                          <span className="text-[11px] text-gray-400 block mb-0.5">{it.topic}</span>
+                        )}
+                        {/* 展开后例句只在下方展示一次，标题行不再重复 */}
+                        {!open && (
+                          <p className="text-gray-800 text-sm leading-snug line-clamp-3">{primaryLine}</p>
+                        )}
                       </div>
                       {open ? (
                         <ChevronUp size={18} className="text-gray-400 shrink-0 mt-0.5" />
@@ -271,7 +301,7 @@ export function VocabCardDetailPage() {
                       )}
                     </button>
                     {open && (
-                      <div className="px-3 sm:px-4 pb-4 pt-0 space-y-3 border-t border-gray-50">
+                      <div className="px-3 pb-3 pt-0 space-y-2 border-t border-gray-100">
                         {isDue && !anyReproPassed && (
                           <div className="pt-3">
                             <VocabReproducePanel
@@ -293,44 +323,43 @@ export function VocabCardDetailPage() {
                         )}
                         {(!isDue || anyReproPassed) && (
                           <>
-                            <div className="pt-3">
-                              <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-2">例句</p>
-                              <button
-                                type="button"
-                                onClick={() => it.chinese && toggleZh(it.id)}
-                                className={`w-full text-left rounded-lg border px-3 py-3 text-sm leading-relaxed font-medium transition-colors ${
-                                  it.chinese
-                                    ? zhOpenById[it.id]
-                                      ? 'border-violet-200 bg-violet-50/50 text-gray-900'
-                                      : 'border-gray-200 bg-white text-gray-800 hover:border-violet-200 hover:bg-violet-50/30 cursor-pointer'
-                                    : 'border-gray-200 bg-white text-gray-800 cursor-default'
-                                }`}
-                                aria-label={it.chinese ? (zhOpenById[it.id] ? '隐藏中文翻译' : '显示中文翻译') : undefined}
-                              >
-                                {it.sentence}
-                                {it.chinese && !zhOpenById[it.id] && (
-                                  <span className="mt-2 flex items-center gap-1 text-xs font-normal text-violet-600">
-                                    <Languages size={12} />
-                                    点击显示中文
-                                  </span>
-                                )}
-                              </button>
-                              {it.chinese && zhOpenById[it.id] && (
-                                <p className="text-gray-600 text-sm leading-relaxed mt-2 pl-1 border-l-2 border-violet-200">
-                                  {it.chinese}
-                                </p>
+                            <div className="pt-3 space-y-2">
+                              {it.chinese ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleZh(it.id)}
+                                  className="w-full text-left rounded-lg border border-gray-200 bg-white px-3 py-2.5 transition-colors hover:bg-violet-50/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2"
+                                  aria-expanded={!zhHiddenById[it.id]}
+                                  aria-label={zhHiddenById[it.id] ? '点击例句显示中文翻译' : '点击例句隐藏中文翻译'}
+                                >
+                                  <p className="text-sm leading-relaxed font-medium text-gray-900">{it.sentence}</p>
+                                  {!zhHiddenById[it.id] ? (
+                                    <p className="text-gray-700 text-sm sm:text-[15px] leading-relaxed mt-2.5 pl-3 border-l-2 border-violet-300">
+                                      {it.chinese}
+                                    </p>
+                                  ) : null}
+                                </button>
+                              ) : (
+                                <div className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+                                  <p className="text-sm leading-relaxed font-medium text-gray-900">{it.sentence}</p>
+                                </div>
                               )}
                             </div>
-                            <div className="flex flex-wrap gap-1 pt-1">
-                              {it.collocationsUsed.map(p => (
-                                <span
-                                  key={p}
-                                  className="text-[11px] bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-100"
-                                >
-                                  {p}
-                                </span>
-                              ))}
-                            </div>
+                            {it.collocationsUsed.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                                <span className="text-[10px] text-gray-400 shrink-0">目标搭配</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {it.collocationsUsed.map(p => (
+                                    <span
+                                      key={p}
+                                      className="text-[11px] bg-emerald-50 text-emerald-900 px-2 py-0.5 rounded-md border border-emerald-100 font-medium"
+                                    >
+                                      {p}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
@@ -340,65 +369,61 @@ export function VocabCardDetailPage() {
               })}
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="shrink-0 border-t border-gray-200 bg-white/95 backdrop-blur-sm shadow-[0_-4px_24px_rgba(0,0,0,0.06)] px-4 sm:px-6 py-3 pb-safe sm:pb-3 z-10">
-        <div className="max-w-3xl mx-auto space-y-2">
-          <div className="text-xs font-medium text-gray-700">复习操作</div>
-          <details className="group text-xs text-gray-500">
-            <summary className="cursor-pointer text-violet-600 hover:text-violet-700 list-none flex items-center gap-1 [&::-webkit-details-marker]:hidden">
-              <ChevronDown
-                size={14}
-                className="shrink-0 transition-transform group-open:rotate-180 text-violet-500"
-              />
-              三个按钮分别做什么？
-            </summary>
-            <p className="mt-2 pl-5 leading-relaxed text-gray-600 border-l-2 border-violet-100">
-              <strong className="text-gray-700">已浏览</strong>
-              ：按当前阶段推迟下次提醒（3 / 7 / 14 天）。
-              <strong className="text-gray-700">记住了</strong>
-              ：阶段 +1，间隔拉长。
-              <strong className="text-gray-700">还不太熟</strong>
-              ：回到阶段 0，约 1 天后再提醒。
-              {isDue && (
-                <span className="block mt-1 text-violet-700">
-                  卡片到期时：须至少完成一条目下的「填空 + 造句批改」后，才能使用上述按钮。
-                </span>
-              )}
-            </p>
-          </details>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => store.markVocabCardViewed(card.id)}
-              disabled={reproFooterBlocked}
-              title={reproFooterBlocked ? '请先完成至少一条目的再产出' : undefined}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-violet-200 text-violet-800 text-sm font-medium hover:bg-violet-50 disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              <Check size={16} />
-              已浏览
-            </button>
-            <button
-              type="button"
-              onClick={() => store.markVocabCardRemembered(card.id)}
-              disabled={reproFooterBlocked}
-              title={reproFooterBlocked ? '请先完成至少一条目的再产出' : undefined}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              <ThumbsUp size={16} />
-              记住了
-            </button>
-            <button
-              type="button"
-              onClick={() => store.markVocabCardStruggled(card.id)}
-              disabled={reproFooterBlocked}
-              title={reproFooterBlocked ? '请先完成至少一条目的再产出' : undefined}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-100 border border-amber-200 text-amber-900 text-sm font-medium hover:bg-amber-200/80 disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              <HelpCircle size={16} />
-              还不太熟
-            </button>
+          {card.registerNoteZh?.trim() ? (
+            <div className="shrink-0 px-4 py-3 border-t border-gray-100 bg-white">
+              <div className="rounded-xl border border-violet-200 ring-1 ring-violet-100/80 bg-violet-50/20 p-3">
+                <div className="mb-2">
+                  <span className="text-[10px] font-medium bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
+                    平时怎么说
+                  </span>
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+                  <p className="text-sm sm:text-[15px] text-gray-800 leading-relaxed">{card.registerNoteZh.trim()}</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* 底部复习操作（同一张卡片内） */}
+          <div className="shrink-0 border-t border-gray-200 px-4 py-3 bg-slate-50/90 rounded-b-2xl">
+            {isDue ? (
+              <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+                到期：须完成一条目下的填空与造句后，方可标记复习。
+              </p>
+            ) : null}
+            <div className="grid grid-cols-3 gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => store.markVocabCardViewed(card.id)}
+                disabled={reproFooterBlocked}
+                title={reproFooterBlocked ? '请先完成至少一条目的再产出' : undefined}
+                className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-2 rounded-lg bg-white border border-violet-200 text-violet-800 text-xs sm:text-sm font-medium hover:bg-violet-50 disabled:opacity-45 disabled:cursor-not-allowed"
+              >
+                <Check size={16} className="shrink-0" aria-hidden />
+                <span className="truncate">已浏览</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => store.markVocabCardRemembered(card.id)}
+                disabled={reproFooterBlocked}
+                title={reproFooterBlocked ? '请先完成至少一条目的再产出' : undefined}
+                className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-2 rounded-lg bg-emerald-600 text-white text-xs sm:text-sm font-medium hover:bg-emerald-700 disabled:opacity-45 disabled:cursor-not-allowed"
+              >
+                <ThumbsUp size={16} className="shrink-0" aria-hidden />
+                <span className="truncate">记住了</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => store.markVocabCardStruggled(card.id)}
+                disabled={reproFooterBlocked}
+                title={reproFooterBlocked ? '请先完成至少一条目的再产出' : undefined}
+                className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-2 rounded-lg bg-amber-100 border border-amber-200 text-amber-900 text-xs sm:text-sm font-medium hover:bg-amber-200/80 disabled:opacity-45 disabled:cursor-not-allowed"
+              >
+                <HelpCircle size={16} className="shrink-0" aria-hidden />
+                <span className="truncate">还不太熟</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -120,6 +120,7 @@ export function FieldPage() {
       chineseThought: stuckInput,
       englishAttempt: '',
       aiSuggestion: suggestion.suggestion,
+      sourceMode: 'field',
     });
   }, [stuckInput, store]);
 

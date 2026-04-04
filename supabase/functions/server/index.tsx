@@ -58,6 +58,16 @@ function getAllowedOrigins(): Set<string> {
 
 const ALLOWED_ORIGINS = getAllowedOrigins();
 
+function isLocalhostOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") return false;
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 async function captureServerError(scope: string, err: unknown) {
   const dsn = Deno.env.get("SENTRY_DSN");
   if (!dsn) return;
@@ -116,9 +126,11 @@ app.use(
   cors({
     origin: (origin) => {
       if (!origin) return "";
-      return ALLOWED_ORIGINS.has(origin) ? origin : "";
+      if (ALLOWED_ORIGINS.has(origin)) return origin;
+      if (isLocalhostOrigin(origin)) return origin;
+      return "";
     },
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "apikey"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
@@ -367,34 +379,14 @@ app.post("/make-server-1fc434d6/ai/grammar-check", async (c) => {
       return c.json({ error: "sentence and collocation are required" }, 400);
     }
 
-    const systemPrompt = `You are an English grammar checker for Chinese ESL learners. Your task is to check if a sentence correctly uses the collocation "${collocation}".
-
-Respond ONLY with valid JSON (no markdown, no code blocks). Use this exact format:
-{
-  "isCorrect": true/false,
-  "errors": [
-    {
-      "type": "grammar_type",
-      "description": "Description in Chinese of the error",
-      "hint": "Hint in Chinese on how to fix it (do NOT give the corrected sentence directly)",
-      "grammarPoint": "Grammar concept name in Chinese"
-    }
-  ],
-  "overallHint": "Overall hint in Chinese (empty string if correct)"
-}
-
-Rules:
-- The learner MUST use the exact target collocation "${collocation}" (fixed exercise phrase, not optional).
-- Check grammar, tense, articles, prepositions, punctuation, capitalization, subject-verb agreement, word order.
-- The collocation must appear and be grammatically valid. If it is used correctly, set isCorrect to true even if a near-synonym might be more common in some contexts — DO NOT mark incorrect solely for preferring a synonym (e.g. take a break vs have a break).
-- NEVER tell the learner to replace "${collocation}" with a different similar-meaning phrase; that breaks the exercise.
-- Only flag the collocation if it is actually misused (wrong preposition, form, etc.).
-- Sentence must start with capital letter and end with . ! or ?
-- First person pronoun must be uppercase "I"
-- If the sentence is too short (fewer than 4 words), flag it as incomplete
-- Descriptions and hints must be in Chinese
-- Do NOT provide the full corrected sentence - only hints to guide the learner
-- Be strict on real grammar errors but fair on the assigned collocation`;
+    const systemPrompt =
+      "You are an English grammar checker for Chinese ESL learners. The learner MUST use the exact target collocation: \"" +
+      collocation +
+      "\" (this is a fixed exercise phrase, not optional).\n\nRespond ONLY with valid JSON (no markdown, no code blocks). Use this exact format:\n{\n  \"isCorrect\": true/false,\n  \"correctedSentence\": \"If isCorrect is false: one full corrected English sentence that fixes all flagged issues and MUST include the exact target collocation unchanged. If isCorrect is true: empty string.\",\n  \"errors\": [\n    {\n      \"type\": \"grammar_type\",\n      \"description\": \"Description in Chinese of the error\",\n      \"hint\": \"Short hint in Chinese (optional)\",\n      \"grammarPoint\": \"Grammar concept name in Chinese\"\n    }\n  ],\n  \"overallHint\": \"Overall hint in Chinese (empty string if correct; may be empty if errors are self-explanatory)\"\n}\n\nRules:\n- Check grammar, tense, articles, prepositions, capitalization, subject-verb agreement, word order, and English sentence punctuation (. ! ? at the end).\n- NEVER treat Chinese full-width punctuation in the learner text (e.g. ，。；：「」) as an error. Do not add an error entry for that; do not set isCorrect to false solely for Chinese punctuation.\n- The collocation \"" +
+      collocation +
+      "\" must appear in the sentence and be used in a grammatically valid way. If it is used correctly, set isCorrect to true even if a different near-synonym might be more common in some contexts — DO NOT mark incorrect solely for preferring a synonym over the assigned collocation.\n- NEVER tell the learner to replace \"" +
+      collocation +
+      "\" with a different phrase that means something similar; that would break the exercise.\n- Only flag the collocation if it is wrong (wrong preposition, wrong verb form, ungrammatical chunk, wrong part of speech, etc.).\n- English sentences should start with a capital letter and end with . ! or ? — flag missing/wrong English closing punctuation if relevant.\n- First person pronoun must be uppercase \"I\"\n- If the sentence is too short (fewer than 4 words), flag it as incomplete\n- Descriptions and hints must be in Chinese\n- correctedSentence must be natural English; do not include Chinese in correctedSentence\n- Be strict on real grammar errors but fair on the assigned collocation choice";
 
     const result = await callDeepSeek([
       { role: "system", content: systemPrompt },

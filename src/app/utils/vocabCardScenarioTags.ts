@@ -2,6 +2,7 @@ import type { VocabCardItem } from '../store/useStore';
 
 /** 雅思题库 topic → 应用场景（中文），便于筛选与理解 */
 const TOPIC_TO_SCENARIO_ZH: Record<string, string> = {
+  日常用语: '日常用语',
   'Daily Routine': '日常生活',
   Hobbies: '兴趣爱好',
   Study: '学习备考',
@@ -15,6 +16,7 @@ const TOPIC_TO_SCENARIO_ZH: Record<string, string> = {
 };
 
 const PART_SCENARIO_FALLBACK: Record<number, string> = {
+  0: '日常用语',
   1: '日常问答',
   2: '话题陈述',
   3: '观点讨论',

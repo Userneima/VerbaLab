@@ -1,77 +1,74 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router';
-import { AlertCircle, Search, CheckCircle2, Filter, BookOpen, Clock, Trash2 } from 'lucide-react';
+import { AlertCircle, Search, CheckCircle2, Filter, Trash2 } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import type { ErrorCategory } from '../store/useStore';
-import { ErrorReviewReproducePanel, isEntryDue } from '../components/ErrorReviewReproducePanel';
 import { VirtualizedStack } from '../components/VirtualizedStack';
 
 type FilterStatus = 'all' | 'unresolved' | 'resolved';
 
-const ERROR_CATEGORY_LABELS: Record<ErrorCategory, { label: string; color: string }> = {
-  grammar: { label: '语法错', color: 'bg-red-100 text-red-700' },
-  collocation: { label: '搭配错', color: 'bg-purple-100 text-purple-700' },
-  chinglish: { label: '中式表达错', color: 'bg-amber-100 text-amber-700' },
+const ERROR_CATEGORY_LABELS: Record<ErrorCategory, { label: string }> = {
+  grammar: { label: '语法错' },
+  collocation: { label: '搭配错' },
+  chinglish: { label: '中式表达错' },
 };
 
 /** AI / 本地校验返回的 error type → 中文标签（键统一小写匹配） */
-const ERROR_TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  capitalization: { label: '大写规范', color: 'bg-red-100 text-red-700' },
-  pronoun_capitalization: { label: '代词大写', color: 'bg-red-100 text-red-700' },
-  punctuation: { label: '标点符号', color: 'bg-orange-100 text-orange-700' },
-  tense: { label: '动词时态', color: 'bg-purple-100 text-purple-700' },
-  article: { label: '冠词使用', color: 'bg-blue-100 text-blue-700' },
-  formatting: { label: '格式规范', color: 'bg-gray-100 text-gray-700' },
-  completeness: { label: '句子完整性', color: 'bg-yellow-100 text-yellow-700' },
-  empty: { label: '输入为空', color: 'bg-gray-100 text-gray-700' },
-  // 常见 AI 返回的 snake_case 类型
-  subject_verb_agreement: { label: '主谓一致', color: 'bg-purple-100 text-purple-700' },
-  pronoun_agreement: { label: '代词一致', color: 'bg-purple-100 text-purple-700' },
-  redundancy: { label: '冗余表达', color: 'bg-amber-100 text-amber-800' },
-  collocation_usage: { label: '搭配用法', color: 'bg-violet-100 text-violet-700' },
-  word_order: { label: '词序', color: 'bg-blue-100 text-blue-700' },
-  preposition: { label: '介词', color: 'bg-blue-100 text-blue-700' },
-  prepositional_phrase: { label: '介词短语', color: 'bg-blue-100 text-blue-700' },
-  plural_singular: { label: '单复数', color: 'bg-indigo-100 text-indigo-700' },
-  number_agreement: { label: '数的一致', color: 'bg-indigo-100 text-indigo-700' },
-  verb_form: { label: '动词形式', color: 'bg-purple-100 text-purple-700' },
-  modal_verb: { label: '情态动词', color: 'bg-purple-100 text-purple-700' },
-  infinitive_gerund: { label: '不定式与动名词', color: 'bg-purple-100 text-purple-700' },
-  passive_voice: { label: '被动语态', color: 'bg-purple-100 text-purple-700' },
-  conditional: { label: '条件句', color: 'bg-purple-100 text-purple-700' },
-  comparative_superlative: { label: '比较级与最高级', color: 'bg-orange-100 text-orange-700' },
-  possessive: { label: '所有格', color: 'bg-red-100 text-red-700' },
-  conjunction: { label: '连词', color: 'bg-cyan-100 text-cyan-800' },
-  relative_clause: { label: '定语从句', color: 'bg-cyan-100 text-cyan-800' },
-  subordinate_clause: { label: '从句', color: 'bg-cyan-100 text-cyan-800' },
-  parallel_structure: { label: '平行结构', color: 'bg-teal-100 text-teal-800' },
-  dangling_modifier: { label: '悬垂修饰语', color: 'bg-amber-100 text-amber-800' },
-  misplaced_modifier: { label: '修饰语位置', color: 'bg-amber-100 text-amber-800' },
-  fragment: { label: '句子片段', color: 'bg-yellow-100 text-yellow-800' },
-  run_on: { label: '粘连句', color: 'bg-yellow-100 text-yellow-800' },
-  run_on_sentence: { label: '粘连句', color: 'bg-yellow-100 text-yellow-800' },
-  spelling: { label: '拼写', color: 'bg-gray-100 text-gray-700' },
-  vocabulary: { label: '用词', color: 'bg-gray-100 text-gray-700' },
-  word_choice: { label: '选词', color: 'bg-gray-100 text-gray-700' },
-  register: { label: '语体', color: 'bg-slate-100 text-slate-700' },
-  collocation: { label: '搭配', color: 'bg-violet-100 text-violet-700' },
-  syntax: { label: '句法', color: 'bg-blue-100 text-blue-700' },
-  semantics: { label: '语义', color: 'bg-slate-100 text-slate-700' },
-  negation: { label: '否定', color: 'bg-red-100 text-red-700' },
-  quantifier: { label: '量词', color: 'bg-indigo-100 text-indigo-700' },
-  determiner: { label: '限定词', color: 'bg-indigo-100 text-indigo-700' },
-  adverb_placement: { label: '副词位置', color: 'bg-teal-100 text-teal-800' },
-  adjective_order: { label: '形容词顺序', color: 'bg-teal-100 text-teal-800' },
-  voice: { label: '语态', color: 'bg-purple-100 text-purple-700' },
-  aspect: { label: '体（进行/完成）', color: 'bg-purple-100 text-purple-700' },
-  grammar: { label: '语法', color: 'bg-red-100 text-red-700' },
-  agreement: { label: '一致关系', color: 'bg-purple-100 text-purple-700' },
-  consistency: { label: '一致性', color: 'bg-purple-100 text-purple-700' },
+const ERROR_TYPE_LABELS: Record<string, { label: string }> = {
+  capitalization: { label: '大写规范' },
+  pronoun_capitalization: { label: '代词大写' },
+  punctuation: { label: '标点符号' },
+  tense: { label: '动词时态' },
+  article: { label: '冠词使用' },
+  formatting: { label: '格式规范' },
+  completeness: { label: '句子完整性' },
+  empty: { label: '输入为空' },
+  subject_verb_agreement: { label: '主谓一致' },
+  pronoun_agreement: { label: '代词一致' },
+  redundancy: { label: '冗余表达' },
+  collocation_usage: { label: '搭配用法' },
+  word_order: { label: '词序' },
+  preposition: { label: '介词' },
+  prepositional_phrase: { label: '介词短语' },
+  plural_singular: { label: '单复数' },
+  number_agreement: { label: '数的一致' },
+  verb_form: { label: '动词形式' },
+  modal_verb: { label: '情态动词' },
+  infinitive_gerund: { label: '不定式与动名词' },
+  passive_voice: { label: '被动语态' },
+  conditional: { label: '条件句' },
+  comparative_superlative: { label: '比较级与最高级' },
+  possessive: { label: '所有格' },
+  conjunction: { label: '连词' },
+  relative_clause: { label: '定语从句' },
+  subordinate_clause: { label: '从句' },
+  parallel_structure: { label: '平行结构' },
+  dangling_modifier: { label: '悬垂修饰语' },
+  misplaced_modifier: { label: '修饰语位置' },
+  fragment: { label: '句子片段' },
+  run_on: { label: '粘连句' },
+  run_on_sentence: { label: '粘连句' },
+  spelling: { label: '拼写' },
+  vocabulary: { label: '用词' },
+  word_choice: { label: '选词' },
+  register: { label: '语体' },
+  collocation: { label: '搭配' },
+  syntax: { label: '句法' },
+  semantics: { label: '语义' },
+  negation: { label: '否定' },
+  quantifier: { label: '量词' },
+  determiner: { label: '限定词' },
+  adverb_placement: { label: '副词位置' },
+  adjective_order: { label: '形容词顺序' },
+  voice: { label: '语态' },
+  aspect: { label: '体（进行/完成）' },
+  grammar: { label: '语法' },
+  agreement: { label: '一致关系' },
+  consistency: { label: '一致性' },
 };
 
-const DEFAULT_ERROR_TYPE_STYLE = { label: '', color: 'bg-gray-100 text-gray-700' } as const;
+const DEFAULT_ERROR_TYPE_STYLE = { label: '' } as const;
 
-/** 将未知英文 type 转成可读中文提示（蛇形命名拆词意译） */
 const ERROR_TYPE_WORD_ZH: Record<string, string> = {
   subject: '主语',
   verb: '动词',
@@ -124,19 +121,38 @@ const ERROR_TYPE_WORD_ZH: Record<string, string> = {
   type: '类型',
 };
 
-function getErrorTypeStyle(type: string): { label: string; color: string } {
+function getErrorTypeStyle(type: string): { label: string } {
   const raw = type.trim();
   if (!raw) return { ...DEFAULT_ERROR_TYPE_STYLE, label: '未分类' };
   const norm = raw.toLowerCase().replace(/-/g, '_');
   const hit = ERROR_TYPE_LABELS[norm];
   if (hit) return hit;
-  // 蛇形命名：逐段意译，未知段保留原文段
   const parts = norm.split(/_+/).filter(Boolean);
   if (parts.length > 0) {
     const zhParts = parts.map(p => ERROR_TYPE_WORD_ZH[p] || p);
-    return { label: zhParts.join('·'), color: DEFAULT_ERROR_TYPE_STYLE.color };
+    return { label: zhParts.join('·') };
   }
-  return { label: raw, color: DEFAULT_ERROR_TYPE_STYLE.color };
+  return { label: raw };
+}
+
+function errorTypeSummary(entry: { errorTypes: string[] }): string {
+  const labels = entry.errorTypes.map(t => getErrorTypeStyle(t).label).filter(Boolean);
+  return [...new Set(labels)].join('、');
+}
+
+/** 展示用：去掉历史记录里「中文标点」类诊断行并重新编号 */
+function filterDiagnosisForDisplay(diagnosis: string): string {
+  const lines = diagnosis
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .filter(line => !/中文标点|全角标点|全形标点|使用了中文标点/.test(line));
+  return lines
+    .map((line, i) => {
+      const body = line.replace(/^\d+\.\s*/, '').trim();
+      return `${i + 1}. ${body}`;
+    })
+    .join('\n');
 }
 
 export function ErrorBankPage() {
@@ -147,12 +163,6 @@ export function ErrorBankPage() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [filterCategory, setFilterCategory] = useState<ErrorCategory | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [openDueReviewId, setOpenDueReviewId] = useState<string | null>(null);
-
-  const errorsDueForReview = useMemo(() => {
-    const now = new Date().toISOString();
-    return store.errorBank.filter(e => !e.resolved && e.nextReviewAt && e.nextReviewAt <= now);
-  }, [store.errorBank]);
 
   const filtered = useMemo(() => {
     let result = [...store.errorBank];
@@ -168,7 +178,7 @@ export function ErrorBankPage() {
 
     if (filterStatus === 'unresolved') result = result.filter(e => !e.resolved);
     if (filterStatus === 'resolved') result = result.filter(e => e.resolved);
-    if (filterCategory !== 'all') result = result.filter(e => (e as any).errorCategory === filterCategory);
+    if (filterCategory !== 'all') result = result.filter(e => (e as { errorCategory?: ErrorCategory }).errorCategory === filterCategory);
 
     return result.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   }, [store.errorBank, search, filterStatus, filterCategory]);
@@ -206,31 +216,29 @@ export function ErrorBankPage() {
   }, [highlightId, filtered, setSearchParams]);
 
   const unresolvedCount = store.errorBank.filter(e => !e.resolved).length;
+  const resolvedCount = store.errorBank.filter(e => e.resolved).length;
+  const totalCount = store.errorBank.length;
 
   const deleteErrorEntry = (entryId: string) => {
     if (!confirm('确定删除这条错误记录？删除后无法恢复。')) return;
     store.removeErrorBankEntry(entryId);
     setExpandedId(prev => (prev === entryId ? null : prev));
-    setOpenDueReviewId(prev => (prev === entryId ? null : prev));
   };
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {/* Header */}
         <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <AlertCircle size={20} className="text-red-500" />
+                <AlertCircle size={20} className="text-red-500 shrink-0" />
                 <h1 className="font-bold text-gray-800 text-base sm:text-lg">语法错误库</h1>
                 {unresolvedCount > 0 && (
-                  <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full font-medium">
-                    {unresolvedCount} 待复习
-                  </span>
+                  <span className="text-xs text-gray-500 font-medium tabular-nums">{unresolvedCount} 条待处理</span>
                 )}
               </div>
-              <p className="text-gray-400 text-sm mt-0.5">记录你的语法薄弱点，每一条错误都是进步的机会</p>
+              <p className="text-gray-400 text-sm mt-0.5">记录薄弱点；展开查看诊断与范例，处理完后可标记已解决</p>
             </div>
           </div>
         </div>
@@ -248,93 +256,23 @@ export function ErrorBankPage() {
             </div>
           ) : (
             <>
-              {/* 待重测：24h / 3d / 7d */}
-              {errorsDueForReview.length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Clock size={18} className="text-amber-600" />
-                      <h3 className="font-semibold text-amber-800">待重测</h3>
-                      <span className="text-amber-600 text-sm">{errorsDueForReview.length} 条到点</span>
-                    </div>
+              <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                <div className="grid grid-cols-3 divide-x divide-gray-100">
+                  <div className="px-4 py-3.5 sm:px-5">
+                    <div className="text-2xl font-semibold text-gray-900 tabular-nums leading-none">{unresolvedCount}</div>
+                    <div className="text-xs text-gray-500 mt-1.5">待复习</div>
                   </div>
-                  <p className="text-amber-700 text-xs mb-3">
-                    到点后需完成「填空 + 造句批改」再推进间隔；可点「推迟」将下次重测延至 24h 后。
-                  </p>
-                  <div className="space-y-2">
-                    {errorsDueForReview.slice(0, 5).map(entry => (
-                      <div
-                        key={entry.id}
-                        className="bg-white rounded-lg px-3 py-2 border border-amber-100 space-y-2"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-gray-800 text-sm font-medium truncate flex-1">
-                            {entry.verb} · {entry.collocation}
-                          </span>
-                          <div className="flex gap-1 shrink-0 items-center">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setOpenDueReviewId(openDueReviewId === entry.id ? null : entry.id)
-                              }
-                              className="px-2 py-1 bg-violet-100 text-violet-800 rounded text-xs font-medium hover:bg-violet-200"
-                            >
-                              {openDueReviewId === entry.id ? '收起' : '再产出'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => store.resetReview(entry.id)}
-                              className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium hover:bg-amber-200"
-                            >
-                              推迟
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteErrorEntry(entry.id)}
-                              className="p-1.5 text-red-600 rounded hover:bg-red-50 border border-transparent hover:border-red-100"
-                              title="删除记录"
-                              aria-label="删除记录"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </div>
-                        {openDueReviewId === entry.id && (
-                          <ErrorReviewReproducePanel
-                            entry={entry}
-                            onSchedulePass={() => store.scheduleNextReview(entry.id)}
-                            onResetDefer={() => store.resetReview(entry.id)}
-                            onRecordAttempt={() => store.recordErrorReviewAttempt(entry.id)}
-                          />
-                        )}
-                      </div>
-                    ))}
-                    {errorsDueForReview.length > 5 && (
-                      <p className="text-amber-600 text-xs">还有 {errorsDueForReview.length - 5} 条待重测，在下方列表中可操作</p>
-                    )}
+                  <div className="px-4 py-3.5 sm:px-5">
+                    <div className="text-2xl font-semibold text-gray-900 tabular-nums leading-none">{resolvedCount}</div>
+                    <div className="text-xs text-gray-500 mt-1.5">已解决</div>
                   </div>
-                </div>
-              )}
-
-              {/* Stats */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-red-50 border border-red-100 rounded-xl p-4">
-                  <div className="text-2xl font-bold text-red-600">{unresolvedCount}</div>
-                  <div className="text-red-700 text-sm">待复习</div>
-                </div>
-                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-                  <div className="text-2xl font-bold text-emerald-600">
-                    {store.errorBank.filter(e => e.resolved).length}
+                  <div className="px-4 py-3.5 sm:px-5">
+                    <div className="text-2xl font-semibold text-gray-900 tabular-nums leading-none">{totalCount}</div>
+                    <div className="text-xs text-gray-500 mt-1.5">总计</div>
                   </div>
-                  <div className="text-emerald-700 text-sm">已解决</div>
-                </div>
-                <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
-                  <div className="text-2xl font-bold text-gray-700">{store.errorBank.length}</div>
-                  <div className="text-gray-500 text-sm">总错误数</div>
                 </div>
               </div>
 
-              {/* Filters */}
               <div className="flex flex-wrap gap-3">
                 <div className="relative flex-1 min-w-[200px]">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -342,16 +280,17 @@ export function ErrorBankPage() {
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                     placeholder="搜索句子、搭配、语法点..."
-                    className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-red-400"
+                    className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-200"
                   />
                 </div>
                 <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
                   {(['all', 'unresolved', 'resolved'] as FilterStatus[]).map(s => (
                     <button
                       key={s}
+                      type="button"
                       onClick={() => setFilterStatus(s)}
                       className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                        filterStatus === s ? 'bg-white shadow text-gray-800' : 'text-gray-500'
+                        filterStatus === s ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
                       }`}
                     >
                       {s === 'all' ? '全部' : s === 'unresolved' ? '待复习' : '已解决'}
@@ -362,9 +301,10 @@ export function ErrorBankPage() {
                   {(['all', 'grammar', 'collocation', 'chinglish'] as const).map(cat => (
                     <button
                       key={cat}
+                      type="button"
                       onClick={() => setFilterCategory(cat)}
                       className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                        filterCategory === cat ? 'bg-white shadow text-gray-800' : 'text-gray-500'
+                        filterCategory === cat ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
                       }`}
                     >
                       {cat === 'all' ? '分类' : ERROR_CATEGORY_LABELS[cat].label}
@@ -377,10 +317,9 @@ export function ErrorBankPage() {
                 </div>
               </div>
 
-              {/* Error list */}
               <VirtualizedStack
                 items={filtered}
-                estimateSize={220}
+                estimateSize={200}
                 className="max-h-[68vh] overflow-y-auto pr-1"
                 empty={
                   <div className="text-center py-8 text-gray-400 text-sm">
@@ -389,61 +328,64 @@ export function ErrorBankPage() {
                 }
                 renderItem={entry => {
                   const isExpanded = expandedId === entry.id;
+                  const cat = entry.errorCategory ?? 'grammar';
+                  const typeLine = errorTypeSummary(entry);
+                  const cs = entry.correctedSentence?.trim();
+                  const diagnosisShown = filterDiagnosisForDisplay(entry.diagnosis);
                   return (
                     <div
                       key={entry.id}
                       id={`error-row-${entry.id}`}
-                      className={`bg-white border rounded-xl overflow-hidden transition-all scroll-mt-24 ${
-                        entry.resolved ? 'border-gray-100 opacity-70' : 'border-red-100'
-                      }`}
+                      className={`bg-white border border-gray-200 rounded-xl overflow-hidden transition-shadow scroll-mt-24 ${
+                        entry.resolved ? 'opacity-[0.92]' : ''
+                      } ${isExpanded ? 'ring-1 ring-gray-200 shadow-sm' : 'hover:border-gray-300'}`}
                     >
                       <div
-                        className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={isExpanded}
+                        className="w-full text-left p-4 sm:p-5 hover:bg-gray-50/80 transition-colors cursor-pointer"
                         onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setExpandedId(isExpanded ? null : entry.id);
+                          }
+                        }}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                              <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded font-medium">
-                                {entry.verb} · {entry.collocation}
-                              </span>
-                              <span
-                                className={`text-xs px-2 py-0.5 rounded font-medium ${ERROR_CATEGORY_LABELS[entry.errorCategory ?? 'grammar'].color}`}
-                              >
-                                {ERROR_CATEGORY_LABELS[entry.errorCategory ?? 'grammar'].label}
-                              </span>
-                              {entry.resolved && (
-                                <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded font-medium">
-                                  ✓ 已解决
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-gray-800 text-sm leading-relaxed">"{entry.originalSentence}"</p>
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                              {entry.errorTypes.map((t, i) => {
-                                const info = getErrorTypeStyle(t);
-                                return (
-                                  <span key={i} className={`text-xs px-2 py-0.5 rounded-full ${info.color}`}>
-                                    {info.label}
-                                  </span>
-                                );
-                              })}
-                            </div>
+                        <div className="flex items-start justify-between gap-3 sm:gap-4">
+                          <div className="flex-1 min-w-0 space-y-1.5">
+                            {cs ? (
+                              <p className="text-[15px] sm:text-base font-medium text-gray-900 leading-relaxed text-pretty">
+                                {cs}
+                              </p>
+                            ) : null}
+                            <p
+                              className={`leading-relaxed text-pretty ${
+                                cs
+                                  ? 'text-sm text-gray-500 line-through decoration-gray-400'
+                                  : 'text-[15px] sm:text-base font-medium text-gray-900'
+                              }`}
+                            >
+                              {entry.originalSentence}
+                            </p>
+                            {entry.resolved ? (
+                              <p className="text-xs text-emerald-700 font-medium">已解决</p>
+                            ) : null}
                           </div>
                           <div className="flex flex-col items-end gap-2 shrink-0">
-                            <div className="text-xs text-gray-400">
+                            <span className="text-[11px] text-gray-400 tabular-nums">
                               {new Date(entry.timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
-                            </div>
+                            </span>
                             <button
                               type="button"
                               onClick={e => {
                                 e.stopPropagation();
                                 deleteErrorEntry(entry.id);
                               }}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-red-600 px-2 py-1 rounded-lg border border-red-100 hover:bg-red-50"
-                              title="删除记录"
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-red-600 px-2 py-1 rounded-md border border-transparent hover:border-red-100 hover:bg-red-50/50 transition-colors"
                             >
-                              <Trash2 size={12} />
+                              <Trash2 size={12} aria-hidden />
                               删除
                             </button>
                           </div>
@@ -451,89 +393,102 @@ export function ErrorBankPage() {
                       </div>
 
                       {isExpanded && (
-                        <div className="border-t border-red-50 p-4 bg-red-50/50 space-y-3">
-                          {/* Diagnosis */}
-                          <div>
-                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">诊断结果</div>
-                            <div className="bg-white border border-red-100 rounded-lg p-3">
-                              <p className="text-gray-700 text-sm whitespace-pre-line">{entry.diagnosis}</p>
-                            </div>
-                          </div>
-
-                          {/* Hint */}
-                          <div>
-                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">提示</div>
-                            <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 flex items-start gap-2">
-                              <span>💡</span>
-                              <p className="text-amber-800 text-sm">{entry.hint}</p>
-                            </div>
-                          </div>
-
-                          {/* 中式表达错：母语者正确版本与思维方式 */}
-                          {(entry as any).errorCategory === 'chinglish' && ((entry as any).nativeVersion || (entry as any).nativeThinking) && (
-                            <div className="space-y-2">
-                              {(entry as any).nativeVersion && (
-                                <div>
-                                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">母语者说法</div>
-                                  <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3">
-                                    <p className="text-emerald-800 text-sm">{(entry as any).nativeVersion}</p>
-                                  </div>
-                                </div>
-                              )}
-                              {(entry as any).nativeThinking && (
-                                <div>
-                                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">母语者思路</div>
-                                  <p className="text-gray-600 text-sm">{(entry as any).nativeThinking}</p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Grammar points */}
-                          {entry.grammarPoints.length > 0 && (
-                            <div>
-                              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                                相关语法点
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {entry.grammarPoints.map((gp, i) => (
-                                  <span key={i} className="flex items-center gap-1 bg-indigo-100 text-indigo-700 text-xs px-2.5 py-1 rounded-full">
-                                    <BookOpen size={11} />
-                                    {gp}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* 复习：再产出过关后自动推进间隔 */}
-                          {!entry.resolved && entry.nextReviewAt && (
-                            <div className="space-y-2">
-                              {isEntryDue(entry) ? (
-                                <ErrorReviewReproducePanel
-                                  entry={entry}
-                                  onSchedulePass={() => store.scheduleNextReview(entry.id)}
-                                  onResetDefer={() => store.resetReview(entry.id)}
-                                  onRecordAttempt={() => store.recordErrorReviewAttempt(entry.id)}
-                                />
-                              ) : (
-                                <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
-                                  下次重测：{new Date(entry.nextReviewAt).toLocaleString('zh-CN')}
-                                </p>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Actions */}
-                          {!entry.resolved && (
-                            <button
-                              type="button"
-                              onClick={() => store.resolveError(entry.id)}
-                              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
+                        <div className="border-t border-gray-100 bg-gray-50/70 px-4 py-5 sm:px-5 space-y-5">
+                          <section className="space-y-2">
+                            {cs ? (
+                              <p className="text-base font-medium text-gray-900 leading-relaxed text-pretty">{cs}</p>
+                            ) : null}
+                            <p
+                              className={`leading-relaxed text-pretty ${
+                                cs
+                                  ? 'text-sm text-gray-500 line-through decoration-gray-400'
+                                  : 'text-base font-medium text-gray-900'
+                              }`}
                             >
-                              <CheckCircle2 size={14} />
-                              标记为已解决
-                            </button>
+                              {entry.originalSentence}
+                            </p>
+                          </section>
+
+                          {diagnosisShown ? (
+                            <section>
+                              <h2 className="text-sm font-semibold text-gray-900 mb-2">诊断结果</h2>
+                              <div className="text-sm text-gray-700 leading-relaxed pl-3 border-l-2 border-gray-300 whitespace-pre-line">
+                                {diagnosisShown}
+                              </div>
+                            </section>
+                          ) : null}
+
+                          {(entry as { errorCategory?: ErrorCategory }).errorCategory === 'chinglish' &&
+                            ((entry as { nativeVersion?: string }).nativeVersion ||
+                              (entry as { nativeThinking?: string }).nativeThinking) && (
+                              <section className="space-y-4">
+                                {(entry as { nativeVersion?: string }).nativeVersion && (
+                                  <div>
+                                    <h2 className="text-sm font-semibold text-gray-900 mb-2">母语者说法</h2>
+                                    <p className="text-sm text-gray-700 leading-relaxed pl-3 border-l-2 border-gray-300">
+                                      {(entry as { nativeVersion: string }).nativeVersion}
+                                    </p>
+                                  </div>
+                                )}
+                                {(entry as { nativeThinking?: string }).nativeThinking && (
+                                  <div>
+                                    <h2 className="text-sm font-semibold text-gray-900 mb-2">母语者思路</h2>
+                                    <p className="text-sm text-gray-600 leading-relaxed pl-3 border-l-2 border-gray-200">
+                                      {(entry as { nativeThinking: string }).nativeThinking}
+                                    </p>
+                                  </div>
+                                )}
+                              </section>
+                            )}
+
+                          <section>
+                            <h2 className="text-sm font-semibold text-gray-900 mb-2">语法点和来源</h2>
+                            <div className="rounded-lg border border-gray-200 bg-white/80 px-3 py-3 space-y-3 text-sm text-gray-700">
+                              <p className="leading-relaxed">
+                                <span className="font-medium text-gray-800">来源</span>
+                                <span className="text-gray-300 mx-1.5">·</span>
+                                <span className="text-gray-700">{entry.verb}</span>
+                                <span className="text-gray-300 mx-1.5">·</span>
+                                <span>{entry.collocation}</span>
+                                <span className="text-gray-300 mx-1.5">·</span>
+                                <span>{ERROR_CATEGORY_LABELS[cat].label}</span>
+                              </p>
+                              {typeLine ? (
+                                <div>
+                                  <span className="font-medium text-gray-800">错误类型</span>
+                                  <span className="text-gray-300 mx-1.5">·</span>
+                                  <span>{typeLine}</span>
+                                </div>
+                              ) : null}
+                              {entry.grammarPoints.length > 0 ? (
+                                <div>
+                                  <div className="font-medium text-gray-800 mb-2">语法点</div>
+                                  <ul className="flex flex-wrap gap-2 list-none p-0 m-0">
+                                    {entry.grammarPoints.map((gp, i) => (
+                                      <li
+                                        key={i}
+                                        className="text-xs text-gray-700 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-md"
+                                      >
+                                        {gp}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
+                            </div>
+                          </section>
+
+                          {!entry.resolved && (
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                onClick={() => store.resolveError(entry.id)}
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                              >
+                                <CheckCircle2 size={16} />
+                                标记为已解决
+                              </button>
+                            </div>
                           )}
                         </div>
                       )}

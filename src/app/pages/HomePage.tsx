@@ -40,7 +40,7 @@ export function HomePage() {
       textColor: 'text-violet-700',
       label: '实验室',
       subtitle: 'The Lab',
-      desc: '随机测试造句，AI 语法校验，积累私人语料库',
+      desc: '随机或搜索内置搭配造句，AI 语法校验，积累私人语料库',
       path: '/lab',
       stat: `${store.stats.corpusSize} 句语料`,
     },
@@ -62,7 +62,7 @@ export function HomePage() {
       textColor: 'text-fuchsia-700',
       label: '词卡工坊',
       subtitle: 'Word Lab',
-      desc: '输入单词，AI 按雅思题与资产区搭配生成多题例句，入库并参与复习提醒',
+      desc: '输入单词，AI 用语体判断与内置搭配白名单生成例句，入库并参与复习提醒',
       path: '/word-lab',
       stat: `${store.stats.vocabCardCount} 张卡片`,
     },
@@ -120,7 +120,7 @@ export function HomePage() {
               </div>
               <div>
                 <div className="font-semibold text-amber-900">有 {store.stats.vocabDueCount} 张单词卡片待复习</div>
-                <div className="text-sm text-amber-800/80">打开卡片复习 · 已浏览可推迟提醒</div>
+                <div className="text-sm text-amber-800/80">打开单词卡片 · 已浏览可推迟提醒</div>
               </div>
             </div>
             <ArrowRight size={18} className="text-amber-700 shrink-0" />

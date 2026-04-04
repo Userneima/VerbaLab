@@ -15,7 +15,7 @@ export function LabPage() {
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 pr-2">
             <FlaskConical size={20} className="text-violet-600 shrink-0" />
             <h1 className="font-bold text-gray-800 text-base sm:text-lg">实验室 · 语法校验</h1>
-            <span className="text-xs text-gray-400 hidden sm:inline">· 用搭配造句，AI 实时诊断</span>
+            <span className="text-xs text-gray-400 hidden sm:inline">· 内置搭配库，无需先去资产区选题</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <div className="relative lg:hidden">
@@ -33,6 +33,39 @@ export function LabPage() {
             </div>
             <button type="button" onClick={vm.loadNew} className="flex items-center gap-2 text-sm text-gray-600 hover:text-indigo-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-indigo-50 border border-transparent hover:border-indigo-100 touch-manipulation"><RefreshCw size={14} />换一题</button>
           </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+          <div className="text-xs font-medium text-gray-600 mb-1">本题搭配（可选）</div>
+          <p className="text-[11px] text-gray-400 mb-2 leading-relaxed">
+            在下方搜索内置动词搭配并点选即可切换；或继续用右上角「换一题」随机。不必去资产区先选短语。
+          </p>
+          <input
+            type="search"
+            value={vm.collocationSearch}
+            onChange={e => vm.setCollocationSearch(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-400"
+            placeholder="搜索英文短语或中文释义…"
+            autoComplete="off"
+          />
+          {vm.collocationSearch.trim() && vm.collocationSearchMatches.length > 0 && (
+            <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-100 divide-y divide-gray-50">
+              {vm.collocationSearchMatches.map(row => (
+                <li key={row.collocation.id}>
+                  <button
+                    type="button"
+                    onClick={() => vm.applyCollocationFromSearch(row)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50/80 transition-colors"
+                  >
+                    <span className="font-medium text-gray-800">{row.collocation.phrase}</span>
+                    <span className="block text-[11px] text-gray-500 mt-0.5">{row.collocation.meaning}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {vm.collocationSearch.trim() && vm.collocationSearchMatches.length === 0 && (
+            <p className="mt-2 text-[11px] text-gray-400">无匹配项，可换个关键词或随机一题。</p>
+          )}
         </div>
         <ChallengeInput phrase={vm.currentItem.collocation.phrase} meaning={vm.currentItem.collocation.meaning} verb={vm.currentItem.verb.verb} isLearned={vm.isLearned} contextStr={vm.contextStr} userInput={vm.userInput} submissionCount={vm.submissionCount} testState={vm.testState} onInputChange={vm.setUserInput} onKeyDown={vm.handleKeyDown} onSubmit={vm.handleSubmit} onOpenStuck={() => { vm.setLabStuckOpen(true); vm.setStuckSuggestion(null); }} onToggleRecording={vm.handleToggleRecording} speech={vm.speech} inputRef={vm.userInputRef} />
         {vm.labStuckOpen && <StuckAssistantPanel phrase={vm.currentItem.collocation.phrase} stuckInput={vm.stuckInput} stuckLoading={vm.stuckLoading} suggestion={vm.stuckSuggestion} onClose={() => { vm.setLabStuckOpen(false); vm.setStuckSuggestion(null); }} onInputChange={vm.setStuckInput} onSubmit={vm.handleLabStuck} onClearSuggestion={() => vm.setStuckSuggestion(null)} />}

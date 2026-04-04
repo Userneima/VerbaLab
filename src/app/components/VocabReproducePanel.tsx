@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Loader2, CheckCircle2, HelpCircle } from 'lucide-react';
-import { aiGrammarCheck } from '../utils/api';
+import { checkGrammar } from '../utils/grammarCheck';
 import { useSpeechRecognition } from '../utils/useSpeechRecognition';
 import {
   buildClozeParts,
@@ -143,7 +143,7 @@ export function VocabReproducePanel({
     }
     setChecking(true);
     try {
-      const result = await aiGrammarCheck(t, targetCollocation);
+      const result = await checkGrammar(t, targetCollocation);
       if (!result.isCorrect) {
         setAiHints(result.errors.map(e => e.hint || e.description));
         setFailStreak(fs => fs + 1);
@@ -241,7 +241,7 @@ export function VocabReproducePanel({
           </div>
           {showCollocationRuleTip && (
             <p className="text-[11px] text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-2 py-1.5 leading-relaxed">
-              这是这条词卡绑定的目标搭配（来自资产区搭配库）。复习时强制保留它，是为了确认你在同一语言块上完成再产出，而不是换同义表达绕过训练。
+              这是本卡绑定的目标搭配。复习时强制保留它，是为了确认你在同一语言块上完成再产出，而不是换同义表达绕过训练。
             </p>
           )}
           {usedForgotOption && (

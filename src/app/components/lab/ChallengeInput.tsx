@@ -26,13 +26,13 @@ export function ChallengeInput(props: {
 }) {
   const { phrase, meaning, verb, isLearned, contextStr, userInput, submissionCount, testState, onInputChange, onKeyDown, onSubmit, onOpenStuck, onToggleRecording, speech, inputRef } = props;
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="bg-gradient-to-r from-violet-600 to-indigo-600 p-5 text-white">
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="text-violet-200 text-xs uppercase tracking-wide mb-1">目标搭配</div>
-            <div className="text-2xl font-bold">{phrase}</div>
-            <div className="text-violet-200 mt-1">{meaning}</div>
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-3.5 text-white">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-violet-200/90 text-[10px] uppercase tracking-wide mb-0.5">目标搭配</div>
+            <div className="text-xl font-bold leading-tight">{phrase}</div>
+            <div className="text-violet-200 text-sm mt-0.5 line-clamp-2">{meaning}</div>
           </div>
           <div className="text-right">
             <div className="bg-white/20 rounded-lg px-3 py-1 text-sm font-medium">{verb}</div>
@@ -41,27 +41,26 @@ export function ChallengeInput(props: {
         </div>
       </div>
 
-      <div className="p-5 border-b border-gray-100">
-        <div className="flex items-start gap-3">
-          <div className="w-6 h-6 bg-amber-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-            <span className="text-amber-700 text-xs font-bold">题</span>
+      <div className="px-4 py-3 border-b border-gray-100">
+        <div className="flex items-start gap-2">
+          <div className="w-5 h-5 bg-amber-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+            <span className="text-amber-700 text-[10px] font-bold">题</span>
           </div>
-          <div>
-            <p className="text-gray-700 text-sm font-medium">{contextStr}</p>
-            <p className="text-gray-400 text-xs mt-1">请用搭配 <strong className="text-indigo-600">{phrase}</strong> 写一个完整的英文句子</p>
+          <div className="min-w-0">
+            <p className="text-gray-700 text-sm font-medium leading-snug">{contextStr}</p>
+            <p className="text-gray-400 text-[11px] mt-0.5">
+              用 <strong className="text-indigo-600">{phrase}</strong> 写完整英文句
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="p-5">
-        <div className="mb-4 p-3 rounded-xl bg-violet-50 border border-violet-100">
-          <div className="flex items-center gap-2 text-violet-800 text-sm font-medium mb-1">
-            <Mic size={16} />
-            语音输入
-          </div>
-          <p className="text-violet-700/90 text-xs leading-relaxed">点击下方「语音」说英文，识别结果会追加到输入框；说完再点「停止」。</p>
-        </div>
-        <div className="mb-3">
+      <div className="p-4">
+        <p className="text-[11px] text-violet-700/90 mb-2 flex items-center gap-1.5">
+          <Mic size={14} className="shrink-0" />
+          可用「语音」追加到输入框，说完点「停止」
+        </p>
+        <div className="mb-2.5">
           <div className="flex items-center justify-between mb-2 gap-2">
             <label className="text-sm font-medium text-gray-600">你的造句</label>
             <div className="flex items-center gap-2 text-xs text-gray-400 shrink-0">

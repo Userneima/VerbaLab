@@ -58,6 +58,17 @@ function getAllowedOrigins(): Set<string> {
 
 const ALLOWED_ORIGINS = getAllowedOrigins();
 
+/** 任意端口的本机前端（Vite 常用 5173/5174/4173 等），避免仅白名单端口时浏览器 CORS 报 Failed to fetch */
+function isLocalhostOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") return false;
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 async function captureServerError(scope: string, err: unknown) {
   const dsn = Deno.env.get("SENTRY_DSN");
   if (!dsn) return;
@@ -116,7 +127,9 @@ app.use(
   cors({
     origin: (origin) => {
       if (!origin) return "";
-      return ALLOWED_ORIGINS.has(origin) ? origin : "";
+      if (ALLOWED_ORIGINS.has(origin)) return origin;
+      if (isLocalhostOrigin(origin)) return origin;
+      return "";
     },
     allowHeaders: ["Content-Type", "Authorization", "apikey"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -419,11 +432,11 @@ app.post("/make-server-1fc434d6/ai/grammar-check", async (c) => {
     const systemPrompt =
       "You are an English grammar checker for Chinese ESL learners. The learner MUST use the exact target collocation: \"" +
       collocation +
-      "\" (this is a fixed exercise phrase, not optional).\n\nRespond ONLY with valid JSON (no markdown, no code blocks). Use this exact format:\n{\n  \"isCorrect\": true/false,\n  \"errors\": [\n    {\n      \"type\": \"grammar_type\",\n      \"description\": \"Description in Chinese of the error\",\n      \"hint\": \"Hint in Chinese on how to fix it (do NOT give the corrected sentence directly)\",\n      \"grammarPoint\": \"Grammar concept name in Chinese\"\n    }\n  ],\n  \"overallHint\": \"Overall hint in Chinese (empty string if correct)\"\n}\n\nRules:\n- Check grammar, tense, articles, prepositions, punctuation, capitalization, subject-verb agreement, word order.\n- The collocation \"" +
+      "\" (this is a fixed exercise phrase, not optional).\n\nRespond ONLY with valid JSON (no markdown, no code blocks). Use this exact format:\n{\n  \"isCorrect\": true/false,\n  \"correctedSentence\": \"If isCorrect is false: one full corrected English sentence that fixes all flagged issues and MUST include the exact target collocation unchanged. If isCorrect is true: empty string.\",\n  \"errors\": [\n    {\n      \"type\": \"grammar_type\",\n      \"description\": \"Description in Chinese of the error\",\n      \"hint\": \"Short hint in Chinese (optional)\",\n      \"grammarPoint\": \"Grammar concept name in Chinese\"\n    }\n  ],\n  \"overallHint\": \"Overall hint in Chinese (empty string if correct; may be empty if errors are self-explanatory)\"\n}\n\nRules:\n- Check grammar, tense, articles, prepositions, capitalization, subject-verb agreement, word order, and English sentence punctuation (. ! ? at the end).\n- NEVER treat Chinese full-width punctuation in the learner text (e.g. ，。；：「」) as an error. Do not add an error entry for that; do not set isCorrect to false solely for Chinese punctuation.\n- The collocation \"" +
       collocation +
       "\" must appear in the sentence and be used in a grammatically valid way. If it is used correctly, set isCorrect to true even if a different near-synonym (e.g. take a break vs have a break, make a decision vs take a decision) might be more common in some contexts — DO NOT mark incorrect solely for preferring a synonym over the assigned collocation.\n- NEVER tell the learner to replace \"" +
       collocation +
-      "\" with a different phrase that means something similar; that would break the exercise.\n- Only flag the collocation if it is wrong (wrong preposition, wrong verb form, ungrammatical chunk, wrong part of speech, etc.).\n- Sentence must start with capital letter and end with . ! or ?\n- First person pronoun must be uppercase \"I\"\n- If the sentence is too short (fewer than 4 words), flag it as incomplete\n- Descriptions and hints must be in Chinese\n- Do NOT provide the full corrected sentence - only hints to guide the learner\n- Be strict on real grammar errors but fair on the assigned collocation choice";
+      "\" with a different phrase that means something similar; that would break the exercise.\n- Only flag the collocation if it is wrong (wrong preposition, wrong verb form, ungrammatical chunk, wrong part of speech, etc.).\n- English sentences should start with a capital letter and end with . ! or ? — flag missing/wrong English closing punctuation if relevant.\n- First person pronoun must be uppercase \"I\"\n- If the sentence is too short (fewer than 4 words), flag it as incomplete\n- Descriptions and hints must be in Chinese\n- correctedSentence must be natural English; do not include Chinese in correctedSentence\n- Be strict on real grammar errors but fair on the assigned collocation choice";
 
     const result = await callDeepSeek([
       { role: "system", content: systemPrompt },
@@ -661,47 +674,124 @@ app.post("/make-server-1fc434d6/ai/chinglish-check", async (c) => {
   }
 });
 
-// Word Lab: generate IELTS-style sentences for a headword using sampled questions + collocation whitelist
+function parseJsonFromModel(text: string): unknown {
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, text];
+  return JSON.parse(jsonMatch[1].trim());
+}
+
+/** Step 1: decide if learner target is everyday spoken English vs formal/written; pick phrase for example sentence */
+async function assessSpokenRegister(
+  headword: string,
+  sense: string,
+  model: string,
+): Promise<{
+  isCommonInSpokenEnglish: boolean;
+  phraseForExample: string;
+  spokenAlternatives: string[];
+  writtenSupplement: string | null;
+  noteZh: string;
+}> {
+  const systemPrompt =
+    "You help Chinese ESL learners choose natural SPOKEN English. The learner will type an English word or short phrase they want to practice.\n\n" +
+    "Judge whether their target is commonly used in everyday casual conversation (with friends, family, coworkers in informal talk), " +
+    "or is mainly written, academic, literary, legal, medical jargon in print, or otherwise rare in speech.\n\n" +
+    "Respond ONLY with valid JSON (no markdown, no code fences):\n" +
+    "{\n" +
+    '  "isCommonInSpokenEnglish": true or false,\n' +
+    '  "phraseForExample": "string — the ONE wording to use in a single spoken example sentence. If isCommonInSpokenEnglish is true, use the learner\'s wording (fix only capitalization). If false, pick the most natural thing natives say in speech (simple word, phrasal verb, or idiom like \\"runs in the family\\"); do NOT force the formal word into the example.\n' +
+    '  "spokenAlternatives": ["2 to 4 alternatives, most natural first"],\n' +
+    '  "writtenSupplement": "string or null — if you chose phraseForExample different from the learner\'s input because theirs is formal/rare in speech, put THEIR original word/phrase here as the \\"written/academic\\" label; otherwise null.\n' +
+    '  "noteZh": "one short sentence in Chinese: why phraseForExample fits spoken English better when you switched, or confirm it is already colloquial."\n' +
+    "}\n\n" +
+    "Rules:\n" +
+    "- phraseForExample must be a single chunk you can embed in one short sentence (not a list).\n" +
+    "- spokenAlternatives must include phraseForExample first or mirror the same ideas.\n" +
+    "- If the learner's term is already fine for speaking, set isCommonInSpokenEnglish true and phraseForExample to their term.";
+
+  const userContent =
+    "Learner target: \"" + headword + "\"" +
+    (sense ? "\nSense / context note: " + sense : "") +
+    "\nReturn JSON only.";
+
+  const result = await callDeepSeek(
+    [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }],
+    0.2,
+    768,
+    model,
+  );
+
+  try {
+    const raw = parseJsonFromModel(result) as Record<string, unknown>;
+    const phraseForExample = String(raw.phraseForExample || "").trim() || headword;
+    const noteZh = String(raw.noteZh || "").trim();
+    const isCommon = Boolean(raw.isCommonInSpokenEnglish);
+    const alts = Array.isArray(raw.spokenAlternatives)
+      ? (raw.spokenAlternatives as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+      : [];
+    let writtenSupplement = raw.writtenSupplement != null && String(raw.writtenSupplement).trim()
+      ? String(raw.writtenSupplement).trim()
+      : null;
+    const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!writtenSupplement && norm(phraseForExample) !== norm(headword)) {
+      writtenSupplement = headword;
+    }
+    return {
+      isCommonInSpokenEnglish: isCommon,
+      phraseForExample,
+      spokenAlternatives: alts.length ? alts : [phraseForExample],
+      writtenSupplement,
+      noteZh,
+    };
+  } catch (e) {
+    console.log(`assessSpokenRegister parse failed: ${e} raw=${result.slice(0, 300)}`);
+    return {
+      isCommonInSpokenEnglish: true,
+      phraseForExample: headword,
+      spokenAlternatives: [headword],
+      writtenSupplement: null,
+      noteZh: "",
+    };
+  }
+}
+
+// Word Lab: register check + one everyday sentence using collocation whitelist (no IELTS prompts)
 const vocabCardHandler = async (c: any) => {
   try {
     const body = await c.req.json();
     const headword = String(body.headword || "").trim();
     const sense = String(body.sense || "").trim();
-    const questions = Array.isArray(body.questions) ? body.questions : [];
     const collocations = Array.isArray(body.collocations) ? body.collocations : [];
 
     if (!headword) {
       return c.json({ error: "headword is required" }, 400);
     }
-    if (questions.length < 1) {
-      return c.json({ error: "questions array is required" }, 400);
-    }
     if (collocations.length < 1) {
       return c.json({ error: "collocations array is required" }, 400);
     }
 
-    const qLines = questions.slice(0, 10).map((q: any) =>
-      `- id: ${q.id} | Part ${q.part} | ${q.topic} | ${q.question}`
-    ).join("\n");
+    const vocabModel = Deno.env.get("DEEPSEEK_VOCAB_MODEL") || Deno.env.get("DEEPSEEK_MODEL") || "deepseek-chat";
+
+    const reg = await assessSpokenRegister(headword, sense, vocabModel);
+    const phraseForSentence = reg.phraseForExample;
 
     const colLines = collocations.slice(0, 35).map((x: any) =>
       typeof x === "string" ? `- ${x}` : `- ${x.phrase || x} (${x.meaning || ""}) [verb: ${x.verb || ""}]`
     ).join("\n");
 
     const systemPrompt =
-      "You are a daily English speaking coach for Chinese ESL learners. The learner provides ONE English headword (or short phrase) to practice.\n\n" +
-      "TASK: For EACH IELTS-style question listed below, write ONE short, natural, everyday spoken English sentence that:\n" +
-      "1) can plausibly answer the question in real life,\n" +
-      "2) naturally uses the headword \"" + headword + "\"" +
-      (sense ? " in this sense: " + sense : "") + ",\n" +
-      "3) uses AT LEAST ONE collocation from the whitelist below (verbatim phrase as written, e.g. \"get started\", \"make sense\").\n\n" +
-      "QUESTIONS (use exact id values in output):\n" + qLines + "\n\n" +
+      "You are a daily English speaking coach for Chinese ESL learners.\n\n" +
+      "TASK: Write exactly ONE short, natural sentence that someone might say in everyday life (work, home, friends, errands, plans, feelings — NOT exam prompts).\n\n" +
+      "The sentence MUST:\n" +
+      "1) naturally include this spoken target (use it naturally; inflections allowed if grammar requires: e.g. tense/agreement): \"" +
+      phraseForSentence + "\"" +
+      (sense ? "\n   (Learner sense note: " + sense + ")" : "") + "\n" +
+      "2) use AT LEAST ONE collocation from the whitelist below (verbatim phrase as written, e.g. \"get started\", \"make sense\").\n\n" +
+      "The learner originally typed \"" + headword + "\". The spoken target above is what they should practice saying; build the sentence around that, not around formal synonyms.\n\n" +
       "COLLOCATION WHITELIST (only use phrases from this list):\n" + colLines + "\n\n" +
       "Respond ONLY with valid JSON (no markdown, no code fences):\n" +
       "{\n" +
       "  \"items\": [\n" +
       "    {\n" +
-      "      \"questionId\": \"must match one id from the list\",\n" +
       "      \"sentence\": \"English sentence\",\n" +
       "      \"collocationsUsed\": [\"phrase from whitelist used in sentence\"],\n" +
       "      \"chinese\": \"该句中文释义\"\n" +
@@ -709,21 +799,21 @@ const vocabCardHandler = async (c: any) => {
       "  ]\n" +
       "}\n\n" +
       "Strict style rules:\n" +
-      "- Produce exactly one item per question in the list (same count, same order as questions).\n" +
+      "- Return exactly ONE object in \"items\" (a single sentence).\n" +
       "- Sentence length should usually be 8-16 words; avoid very long or multi-clause sentences.\n" +
       "- Prefer one clear main clause; at most one simple subordinate clause.\n" +
       "- Prefer conversational wording and contractions when natural (I'm, it's, don't, can't).\n" +
-      "- Use common daily vocabulary; avoid formal/academic wording unless the question explicitly requires it.\n" +
+      "- Use common daily vocabulary; avoid formal/academic phrasing.\n" +
+      "- Do NOT frame the sentence as an answer to a test question; write a standalone real-life line.\n" +
       "- collocationsUsed must be non-empty; phrases must appear in the sentence naturally.\n" +
       "- Avoid awkward literal translation style; wording should sound like normal spoken English.\n" +
-      "- Do NOT include any \"tags\" field; the app will tag by question scenario on the client.";
+      "- Do NOT include questionId or tags.";
 
-    const userContent = "Headword: \"" + headword + "\"" +
+    const userContent =
+      "Spoken practice target: \"" + phraseForSentence + "\"\nOriginal learner input: \"" + headword + "\"" +
       (sense ? "\nSense note: " + sense : "") +
       "\nGenerate JSON as specified.";
 
-    // Allow a stronger model just for vocab sentence generation.
-    const vocabModel = Deno.env.get("DEEPSEEK_VOCAB_MODEL") || Deno.env.get("DEEPSEEK_MODEL") || "deepseek-chat";
     const result = await callDeepSeek(
       [
         { role: "system", content: systemPrompt },
@@ -736,33 +826,38 @@ const vocabCardHandler = async (c: any) => {
 
     let parsed: { items?: any[] };
     try {
-      const jsonMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, result];
-      parsed = JSON.parse(jsonMatch[1].trim());
+      parsed = parseJsonFromModel(result) as { items?: any[] };
     } catch {
       console.log(`Failed to parse vocab-card response: ${result.slice(0, 500)}`);
       return c.json({ error: "Failed to parse AI response" }, 500);
     }
 
-    const validIds = new Set(questions.map((q: any) => String(q.id)));
-    const items = (parsed.items || []).filter((it: any) =>
-      it && validIds.has(String(it.questionId)) && String(it.sentence || "").trim()
-    );
-
-    if (items.length === 0) {
+    const rawItems = parsed.items || [];
+    const first = rawItems.find((it: any) => it && String(it.sentence || "").trim());
+    if (!first) {
       return c.json({ error: "AI returned no valid items" }, 500);
     }
+
+    const sentence = String(first.sentence).trim();
+    const collocationsUsed = Array.isArray(first.collocationsUsed)
+      ? first.collocationsUsed.map((x: any) => String(x))
+      : [];
 
     return c.json({
       headword,
       sense: sense || undefined,
-      items: items.map((it: any) => ({
-        questionId: String(it.questionId),
-        sentence: String(it.sentence).trim(),
-        collocationsUsed: Array.isArray(it.collocationsUsed)
-          ? it.collocationsUsed.map((x: any) => String(x))
-          : [],
-        chinese: String(it.chinese || "").trim() || undefined,
-      })),
+      spokenPracticePhrase: phraseForSentence,
+      isCommonInSpokenEnglish: reg.isCommonInSpokenEnglish,
+      spokenAlternatives: reg.spokenAlternatives,
+      writtenSupplement: reg.writtenSupplement,
+      registerNoteZh: reg.noteZh || undefined,
+      items: [
+        {
+          sentence,
+          collocationsUsed,
+          chinese: String(first.chinese || "").trim() || undefined,
+        },
+      ],
     });
   } catch (err) {
     console.log(`Error in vocab-card: ${err}`);

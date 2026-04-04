@@ -1452,6 +1452,30 @@ export function getAllCollocations(): Array<{ verb: Verb; collocation: Collocati
   return result;
 }
 
+/** 实验室内置库搜索搭配，无需去资产区选词 */
+export function searchCollocations(query: string, limit = 12): Array<{ verb: Verb; collocation: Collocation }> {
+  const t = query.trim().toLowerCase();
+  if (!t) return [];
+  const all = getAllCollocations();
+  const scored: Array<{ row: { verb: Verb; collocation: Collocation }; score: number }> = [];
+  for (const row of all) {
+    const ph = row.collocation.phrase.toLowerCase();
+    const me = row.collocation.meaning.toLowerCase();
+    let score = 0;
+    if (ph === t) score = 100;
+    else if (ph.startsWith(t)) score = 80;
+    else if (ph.includes(t)) score = 60;
+    else if (me.includes(t)) score = 35;
+    else continue;
+    scored.push({ row, score });
+  }
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.row.collocation.phrase.localeCompare(b.row.collocation.phrase);
+  });
+  return scored.slice(0, limit).map(s => s.row);
+}
+
 /** 为搭配随机匹配一个 IELTS 主题语境，便于覆盖雅思考题 */
 export function getIELTSContextForPhrase(phrase: string): string {
   const theme = IELTS_THEMES[Math.floor(Math.random() * IELTS_THEMES.length)];

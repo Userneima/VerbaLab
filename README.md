@@ -32,7 +32,12 @@ powershell -ExecutionPolicy Bypass -File open-elis.ps1 -InstallShortcut
 
 ### Supabase Edge 函数（词卡工坊 / 同步等）
 
-前端会请求 `https://<project>.supabase.co/functions/v1/make-server-1fc434d6/...`。若**词卡工坊**报 **404**，说明线上函数仍是旧版本，需要重新部署：
+前端会请求 `https://<project>.supabase.co/functions/v1/make-server-1fc434d6/...`。
+
+- 若**词卡工坊**报 **404**，说明线上函数仍是旧版本或未部署。
+- 若报错 **`questions array is required`**，同样是线上 Edge 函数未更新到当前仓库版本（旧接口仍要求雅思题数组）；请重新部署同一函数。
+
+部署命令：
 
 ```bash
 npx supabase login

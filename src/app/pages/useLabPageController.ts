@@ -1,6 +1,13 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
-import { getAllCollocations, getIELTSContextForPhrase, VERBS } from '../data/verbData';
+import {
+  getAllCollocations,
+  getIELTSContextForPhrase,
+  searchCollocations,
+  VERBS,
+  type Collocation,
+  type Verb,
+} from '../data/verbData';
 import { checkGrammar, checkChinglish, getStuckSuggestion, type GrammarError } from '../utils/grammarCheck';
 import { aiGrammarTutor } from '../utils/api';
 import { useStore } from '../store/StoreContext';
@@ -43,13 +50,20 @@ export function useLabPageController() {
   const [stuckLoading, setStuckLoading] = useState(false);
   const [stuckSuggestion, setStuckSuggestion] = useState<{ suggestion: string; type: 'corpus' | 'verb' | 'paraphrase' } | null>(null);
   const [nativeSuggestion, setNativeSuggestion] = useState<NativeSuggestionState>(null);
+  const [collocationSearch, setCollocationSearch] = useState('');
   const userInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const collocationSearchMatches = useMemo(
+    () => searchCollocations(collocationSearch, 10),
+    [collocationSearch]
+  );
 
   const loadNew = useCallback(() => {
     if (speech.isListening) speech.stopListening();
     const next = getRandomCollocation();
     setCurrentItem(next);
     setContextStr(getRandomContext(next.collocation.phrase));
+    setCollocationSearch('');
     setUserInput('');
     setTestState('idle');
     setErrors([]);
@@ -67,6 +81,31 @@ export function useLabPageController() {
     setNativeSuggestion(null);
     setMobileRecentOpen(false);
   }, [speech]);
+
+  const applyCollocationFromSearch = useCallback(
+    (next: { verb: Verb; collocation: Collocation }) => {
+      if (speech.isListening) speech.stopListening();
+      setCurrentItem(next);
+      setContextStr(getRandomContext(next.collocation.phrase));
+      setUserInput('');
+      setTestState('idle');
+      setErrors([]);
+      setOverallHint('');
+      setShowExamples(false);
+      setSubmissionCount(0);
+      setTutorMessages([]);
+      setTutorInput('');
+      setTutorError(null);
+      setClickedLabExampleKey(null);
+      setShowLabTranslationGlobal(false);
+      setLabStuckOpen(false);
+      setStuckInput('');
+      setStuckSuggestion(null);
+      setNativeSuggestion(null);
+      setCollocationSearch('');
+    },
+    [speech]
+  );
 
   const insertSpeechIntoUserInput = useCallback((text: string) => {
     const spoken = text?.trim();
@@ -114,9 +153,11 @@ export function useLabPageController() {
     setStuckSuggestion(suggestion);
     setStuckLoading(false);
     store.addStuckPoint({
-      chineseThought: `[实验室 · ${currentItem.collocation.phrase}] ${thought}`,
+      chineseThought: thought,
       englishAttempt: userInput.trim(),
       aiSuggestion: suggestion.suggestion,
+      sourceMode: 'test',
+      contextCollocation: currentItem.collocation.phrase,
     });
   }, [stuckInput, store, currentItem.collocation.phrase, userInput]);
 
@@ -151,7 +192,20 @@ export function useLabPageController() {
       setTestState('incorrect');
       setErrors(result.errors);
       setOverallHint(result.overallHint);
-      store.addToErrorBank({ verbId: currentItem.verb.id, verb: currentItem.verb.verb, collocationId: currentItem.collocation.id, collocation: currentItem.collocation.phrase, originalSentence: userInput.trim(), errorTypes: result.errors.map(e => e.type), errorCategory: 'grammar', diagnosis: result.errors.map((e, i) => `${i + 1}. ${e.description}`).join('\n'), hint: result.overallHint, grammarPoints: result.errors.map(e => e.grammarPoint), reviewCueZh: contextStr.trim() || undefined });
+      store.addToErrorBank({
+        verbId: currentItem.verb.id,
+        verb: currentItem.verb.verb,
+        collocationId: currentItem.collocation.id,
+        collocation: currentItem.collocation.phrase,
+        originalSentence: userInput.trim(),
+        correctedSentence: result.correctedSentence?.trim() || undefined,
+        errorTypes: result.errors.map(e => e.type),
+        errorCategory: 'grammar',
+        diagnosis: result.errors.map((e, i) => `${i + 1}. ${e.description}`).join('\n'),
+        hint: '',
+        grammarPoints: result.errors.map(e => e.grammarPoint),
+        reviewCueZh: contextStr.trim() || undefined,
+      });
     }
   }, [userInput, currentItem, store, speech, contextStr]);
 
@@ -228,6 +282,10 @@ export function useLabPageController() {
     isLearned: store.learnedCollocations.has(currentItem.collocation.id),
     loadNew, handleSubmit, handleKeyDown, handleToggleRecording, handleLabStuck, saveNativeSuggestionToCorpus, sendTutorMessage,
     goCorpusSentence, goErrorEntry,
+    collocationSearch,
+    setCollocationSearch,
+    collocationSearchMatches,
+    applyCollocationFromSearch,
   };
 }
 

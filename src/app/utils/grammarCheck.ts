@@ -11,6 +11,30 @@ export interface GrammarCheckResult {
   isCorrect: boolean;
   errors: GrammarError[];
   overallHint: string;
+  /** AI 给出的整句改正范例（须含目标搭配）；无则省略 */
+  correctedSentence?: string;
+}
+
+/** 中文全角标点等不作为语法错误（与后端提示一致；并过滤历史 AI 结果） */
+export function isIgnorableGrammarError(e: GrammarError): boolean {
+  const t = e.type.trim().toLowerCase().replace(/-/g, '_');
+  if (t !== 'punctuation') return false;
+  const blob = `${e.description}\n${e.hint}\n${e.grammarPoint}`;
+  return /中文|全角|全形|中文标点/.test(blob);
+}
+
+function normalizeGrammarCheckResult(input: GrammarCheckResult): GrammarCheckResult {
+  const errors = (input.errors || []).filter(e => !isIgnorableGrammarError(e));
+  if (errors.length === 0) {
+    return { isCorrect: true, errors: [], overallHint: '', correctedSentence: undefined };
+  }
+  const cs = input.correctedSentence?.trim();
+  return {
+    isCorrect: false,
+    errors,
+    overallHint: input.overallHint || '',
+    correctedSentence: cs || undefined,
+  };
 }
 
 export async function checkGrammar(sentence: string, collocation: string): Promise<GrammarCheckResult> {
@@ -27,11 +51,13 @@ export async function checkGrammar(sentence: string, collocation: string): Promi
   try {
     // Call DeepSeek AI via backend
     const result = await aiGrammarCheck(trimmed, collocation);
-    return {
+    return normalizeGrammarCheckResult({
       isCorrect: result.isCorrect,
       errors: result.errors || [],
       overallHint: result.overallHint || '',
-    };
+      correctedSentence:
+        typeof result.correctedSentence === 'string' ? result.correctedSentence : undefined,
+    });
   } catch (err) {
     console.error('AI grammar check failed, falling back to local check:', err);
     // Fallback to local heuristic check
@@ -99,7 +125,7 @@ function localGrammarCheck(sentence: string, collocation: string): GrammarCheckR
     errors.length === 1 ? `💡 提示：${errors[0].hint}` :
     `💡 共发现 ${errors.length} 个问题，请逐一修正后重新提交。（注意：当前为本地检查模式，AI 服务暂不可用）`;
 
-  return { isCorrect, errors, overallHint };
+  return normalizeGrammarCheckResult({ isCorrect, errors, overallHint, correctedSentence: undefined });
 }
 
 /** 语法正确时检测是否为中式英语，并返回母语者说法与思路 */

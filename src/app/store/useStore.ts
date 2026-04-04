@@ -26,6 +26,7 @@ import {
 } from '../utils/reviewConfig';
 import { normalizeErrorSentenceForDedupe } from '../utils/errorBankDedupe';
 import { corpusSentenceDedupeKey } from '../utils/corpusDedupe';
+import { isBlankVocabCard } from '../utils/vocabCardBlank';
 import { clearErrorReviewProduceDraft } from '../utils/errorReviewDraftStorage';
 
 export interface CorpusEntry {
@@ -44,6 +45,8 @@ export interface CorpusEntry {
   /** 母语者思维方式简述 */
   nativeThinking?: string;
   isChinglish?: boolean;
+  /** 语料库点击翻译后缓存的整句中文（随同步写入云端） */
+  zhTranslation?: string;
 }
 
 /** 错误库三大类：语法错 / 搭配错 / 中式表达错 */
@@ -57,6 +60,8 @@ export interface ErrorBankEntry {
   collocationId: string;
   collocation: string;
   originalSentence: string;
+  /** 语法检查时 AI 给出的改正范例句（含目标搭配） */
+  correctedSentence?: string;
   errorTypes: string[];
   /** 三大类之一 */
   errorCategory: ErrorCategory;
@@ -88,9 +93,13 @@ export interface StuckPointEntry {
   englishAttempt: string;
   aiSuggestion: string;
   resolved: boolean;
+  /** 实验室 / 实战仓，用于展开区展示来源 */
+  sourceMode?: 'test' | 'field';
+  /** 当时练习的英文搭配，与中文并列作列表标题 */
+  contextCollocation?: string;
 }
 
-/** 语料库学习模块：单词卡 · 一题一句（与实验室造句语料 CorpusEntry 分立） */
+/** 语料库学习模块：单词卡 · 例句与复习（与实验室造句语料 CorpusEntry 分立） */
 export interface VocabCardItem {
   id: string;
   questionId: string;
@@ -107,6 +116,14 @@ export interface VocabCard {
   timestamp: string;
   headword: string;
   sense?: string;
+  /** 例句实际使用的口语说法（可能与用户输入不同，如 genetic vs hereditary） */
+  spokenPracticePhrase?: string;
+  /** 用户输入的书面/正式说法，作补充（当与 spokenPracticePhrase 分流时） */
+  writtenSupplement?: string;
+  /** 为何采用口语说法的简短中文说明 */
+  registerNoteZh?: string;
+  spokenAlternatives?: string[];
+  isCommonInSpokenEnglish?: boolean;
   tags: string[];
   items: VocabCardItem[];
   source: 'ai_word_lab';
@@ -121,7 +138,7 @@ function normalizeVocabCardItem(raw: unknown, idx: number, cardId: string): Voca
   return {
     id: String(r?.id || `${cardId}-i${idx}`),
     questionId: String(r?.questionId || ''),
-    part: Number(r?.part) || 1,
+    part: r?.part === 0 ? 0 : Number(r?.part) || 1,
     topic: String(r?.topic || ''),
     questionSnapshot: String(r?.questionSnapshot || ''),
     sentence: String(r?.sentence || ''),
@@ -137,11 +154,29 @@ function normalizeVocabCard(raw: unknown): VocabCard {
   const items = Array.isArray(rawItems)
     ? rawItems.map((it: unknown, i: number) => normalizeVocabCardItem(it, i, id))
     : [];
+  const altRaw = r?.spokenAlternatives;
   return {
     id,
     timestamp: String(r?.timestamp || new Date().toISOString()),
     headword: String(r?.headword || ''),
     sense: r?.sense ? String(r.sense) : undefined,
+    spokenPracticePhrase:
+      r?.spokenPracticePhrase != null && String(r.spokenPracticePhrase).trim()
+        ? String(r.spokenPracticePhrase).trim()
+        : undefined,
+    writtenSupplement:
+      r?.writtenSupplement != null && String(r.writtenSupplement).trim()
+        ? String(r.writtenSupplement).trim()
+        : undefined,
+    registerNoteZh:
+      r?.registerNoteZh != null && String(r.registerNoteZh).trim()
+        ? String(r.registerNoteZh).trim()
+        : undefined,
+    spokenAlternatives: Array.isArray(altRaw)
+      ? (altRaw as unknown[]).map(x => String(x).trim()).filter(Boolean)
+      : undefined,
+    isCommonInSpokenEnglish:
+      typeof r?.isCommonInSpokenEnglish === 'boolean' ? r.isCommonInSpokenEnglish : undefined,
     tags: Array.isArray(r?.tags) ? (r.tags as unknown[]).map(t => String(t)) : [],
     items,
     source: 'ai_word_lab',
@@ -244,9 +279,10 @@ export function useAppStore(accessToken: string | null) {
   const [learnedCollocations, setLearnedCollocations] = useState<Set<string>>(() =>
     loadFromStorage<Set<string>>('ff_learned', new Set())
   );
-  const [vocabCards, setVocabCards] = useState<VocabCard[]>(() =>
-    loadFromStorage<VocabCard[]>('ff_vocab_cards', [])
-  );
+  const [vocabCards, setVocabCards] = useState<VocabCard[]>(() => {
+    const raw = loadFromStorage<VocabCard[]>('ff_vocab_cards', []);
+    return raw.filter(c => !isBlankVocabCard(c));
+  });
   const [foundryExampleOverrides, setFoundryExampleOverrides] = useState<
     Record<string, FoundryExampleOverridePack>
   >(() => loadFromStorage<Record<string, FoundryExampleOverridePack>>('ff_foundry_examples', {}));
@@ -275,11 +311,46 @@ export function useAppStore(accessToken: string | null) {
   
   // Track whether initial cloud pull has been done for this session
   const initialPullDone = useRef(false);
+  /** 一次性：旧版 localStorage 语料中文缓存 → 写入 CorpusEntry.zhTranslation，便于走同步 */
+  const legacyCorpusZhMigrated = useRef(false);
   // Debounce timer ref
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track data version changes for auto-sync
   const dataVersion = useRef(0);
   const lastSyncedVersion = useRef(0);
+
+  useEffect(() => {
+    if (legacyCorpusZhMigrated.current) return;
+    try {
+      const raw = localStorage.getItem('ff_corpus_zh_cache');
+      if (!raw) {
+        legacyCorpusZhMigrated.current = true;
+        return;
+      }
+      const parsed = JSON.parse(raw) as Record<string, { translation?: string; sentence?: string }>;
+      if (!parsed || typeof parsed !== 'object') {
+        legacyCorpusZhMigrated.current = true;
+        return;
+      }
+      setCorpus(prev => {
+        let changed = false;
+        const next = prev.map(e => {
+          const row = parsed[e.id];
+          const t = row?.translation?.trim();
+          if (t && row?.sentence === e.userSentence && !e.zhTranslation) {
+            changed = true;
+            return { ...e, zhTranslation: t, timestamp: new Date().toISOString() };
+          }
+          return e;
+        });
+        return changed ? next : prev;
+      });
+      localStorage.removeItem('ff_corpus_zh_cache');
+    } catch {
+      /* ignore */
+    }
+    legacyCorpusZhMigrated.current = true;
+  }, []);
 
   // Persist to localStorage
   useEffect(() => { saveToStorage('ff_corpus', corpus); }, [corpus]);
@@ -287,6 +358,13 @@ export function useAppStore(accessToken: string | null) {
   useEffect(() => { saveToStorage('ff_stuck', stuckPoints); }, [stuckPoints]);
   useEffect(() => { saveToStorage('ff_learned', learnedCollocations); }, [learnedCollocations]);
   useEffect(() => { saveToStorage('ff_vocab_cards', vocabCards); }, [vocabCards]);
+
+  useEffect(() => {
+    setVocabCards(prev => {
+      const next = prev.filter(c => !isBlankVocabCard(c));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [vocabCards]);
   useEffect(() => {
     saveToStorage('ff_foundry_examples', foundryExampleOverrides);
   }, [foundryExampleOverrides]);
@@ -372,10 +450,12 @@ export function useAppStore(accessToken: string | null) {
         const mergedTags = Array.from(
           new Set([...existing.tags, ...entry.tags].map(t => t.trim()).filter(Boolean))
         );
+        const newSentence = entry.userSentence.trim() || existing.userSentence;
+        const sentenceChanged = newSentence !== existing.userSentence;
         resultEntry = {
           ...existing,
           timestamp: now,
-          userSentence: entry.userSentence.trim() || existing.userSentence,
+          userSentence: newSentence,
           verbId: entry.verbId,
           verb: entry.verb,
           collocation: entry.collocation,
@@ -385,6 +465,7 @@ export function useAppStore(accessToken: string | null) {
           nativeVersion: entry.nativeVersion ?? existing.nativeVersion,
           nativeThinking: entry.nativeThinking ?? existing.nativeThinking,
           isChinglish: entry.isChinglish ?? existing.isChinglish,
+          zhTranslation: sentenceChanged ? undefined : existing.zhTranslation,
         };
         const rest = prev.filter((_, i) => i !== dupIdx);
         return [resultEntry, ...rest];
@@ -403,6 +484,18 @@ export function useAppStore(accessToken: string | null) {
 
   const removeCorpusEntry = useCallback((entryId: string) => {
     setCorpus(prev => prev.filter(e => e.id !== entryId));
+  }, []);
+
+  const setCorpusEntryZhTranslation = useCallback((entryId: string, translation: string) => {
+    const trimmed = translation.trim();
+    const now = new Date().toISOString();
+    setCorpus(prev =>
+      prev.map(e =>
+        e.id === entryId
+          ? { ...e, zhTranslation: trimmed || undefined, timestamp: now }
+          : e
+      )
+    );
   }, []);
 
   const addToErrorBank = useCallback((entry: Omit<ErrorBankEntry, 'id' | 'timestamp' | 'resolved' | 'nextReviewAt' | 'reviewStage'> & { errorCategory?: ErrorCategory; nextReviewAt?: string | null; reviewStage?: number; reviewCueZh?: string }) => {
@@ -436,6 +529,7 @@ export function useAppStore(accessToken: string | null) {
           ...existing,
           timestamp: now.toISOString(),
           originalSentence: entry.originalSentence.trim() || existing.originalSentence,
+          correctedSentence: entry.correctedSentence?.trim() || existing.correctedSentence,
           errorTypes: mergedErrorTypes.length ? mergedErrorTypes : existing.errorTypes,
           errorCategory: entry.errorCategory ?? existing.errorCategory,
           diagnosis: entry.diagnosis || existing.diagnosis,
@@ -553,7 +647,17 @@ export function useAppStore(accessToken: string | null) {
   }, []);
 
   const addVocabCard = useCallback(
-    (input: { headword: string; sense?: string; tags: string[]; items: VocabCardItem[] }) => {
+    (input: {
+      headword: string;
+      sense?: string;
+      tags: string[];
+      items: VocabCardItem[];
+      spokenPracticePhrase?: string;
+      writtenSupplement?: string;
+      registerNoteZh?: string;
+      spokenAlternatives?: string[];
+      isCommonInSpokenEnglish?: boolean;
+    }) => {
       const id = newVocabCardId();
       const now = new Date().toISOString();
       const items = input.items.map((it, i) => ({
@@ -565,6 +669,13 @@ export function useAppStore(accessToken: string | null) {
         timestamp: now,
         headword: input.headword.trim(),
         sense: input.sense?.trim() || undefined,
+        spokenPracticePhrase: input.spokenPracticePhrase?.trim() || undefined,
+        writtenSupplement: input.writtenSupplement?.trim() || undefined,
+        registerNoteZh: input.registerNoteZh?.trim() || undefined,
+        spokenAlternatives: input.spokenAlternatives?.length
+          ? [...new Set(input.spokenAlternatives.map(s => s.trim()).filter(Boolean))]
+          : undefined,
+        isCommonInSpokenEnglish: input.isCommonInSpokenEnglish,
         tags: input.tags,
         items,
         source: 'ai_word_lab',
@@ -824,6 +935,7 @@ export function useAppStore(accessToken: string | null) {
     unmarkAsLearned,
     addToCorpus,
     removeCorpusEntry,
+    setCorpusEntryZhTranslation,
     addToErrorBank,
     recordErrorReviewAttempt,
     setErrorReviewReproClozeDone,
@@ -853,7 +965,7 @@ export function useAppStore(accessToken: string | null) {
       totalLearned: learnedCollocations.size,
       corpusSize: corpus.length,
       errorCount: errorBank.filter(e => !e.resolved).length,
-      stuckCount: stuckPoints.filter(s => !s.resolved).length,
+      stuckCount: stuckPoints.length,
       vocabCardCount: vocabCards.length,
       vocabDueCount,
     },

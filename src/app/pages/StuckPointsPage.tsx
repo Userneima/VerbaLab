@@ -1,8 +1,93 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { LifeBuoy, Search, Filter, CheckCircle2, MessageSquare, Sparkles } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
+import { getStuckPointDisplay } from '../utils/stuckPointDisplay';
 
 type FilterStatus = 'all' | 'unresolved' | 'resolved';
+
+/** 句内「用'make':」式短语加粗 */
+function highlightVerbUsePhrases(s: string): ReactNode {
+  const re = /用[\u2018']([^'\u2019]+)[\u2019'][:：]/g;
+  const out: ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let k = 0;
+  while ((m = re.exec(s)) !== null) {
+    if (m.index > last) {
+      out.push(<span key={`p-${k++}`}>{s.slice(last, m.index)}</span>);
+    }
+    out.push(
+      <strong key={`p-${k++}`} className="font-semibold text-amber-950">
+        {m[0]}
+      </strong>
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) {
+    out.push(<span key={`p-${k++}`}>{s.slice(last)}</span>);
+  }
+  return out.length ? out : s;
+}
+
+/** **markdown 粗体** + 动词短语 */
+function renderRichFragments(s: string): ReactNode {
+  const chunks = s.split(/(\*\*[^*]+\*\*)/g);
+  return chunks.map((chunk, i) => {
+    if (chunk.startsWith('**') && chunk.endsWith('**')) {
+      const inner = chunk.slice(2, -2);
+      return (
+        <strong key={i} className="font-semibold text-amber-950">
+          {highlightVerbUsePhrases(inner)}
+        </strong>
+      );
+    }
+    return <span key={i}>{highlightVerbUsePhrases(chunk)}</span>;
+  });
+}
+
+function StuckAiSuggestionBody({ text }: { text: string }) {
+  const lines = text.split('\n');
+  return (
+    <div className="space-y-2.5 text-sm leading-relaxed">
+      {lines.map((line, i) => {
+        const raw = line.replace(/\s+$/, '');
+        if (!raw.trim()) {
+          return <div key={i} className="h-1" aria-hidden />;
+        }
+        const t = raw.trimStart();
+
+        if (/^\d+\.\s/.test(t)) {
+          const mm = t.match(/^(\d+\.\s)([\s\S]*)$/);
+          if (mm) {
+            return (
+              <p key={i} className="text-amber-900">
+                <span className="font-semibold text-amber-950 tabular-nums">{mm[1]}</span>
+                {renderRichFragments(mm[2])}
+              </p>
+            );
+          }
+        }
+
+        if (/^例句[:：]/.test(t)) {
+          const rest = t.replace(/^例句[:：]\s*/, '');
+          return (
+            <p key={i} className="text-amber-900">
+              <span className="font-semibold text-amber-950">例句</span>
+              <span className="text-amber-800/90">：</span>
+              {renderRichFragments(rest)}
+            </p>
+          );
+        }
+
+        return (
+          <p key={i} className="text-amber-900/92 font-normal">
+            {renderRichFragments(raw)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 export function StuckPointsPage() {
   const store = useStore();
@@ -92,7 +177,9 @@ export function StuckPointsPage() {
               </div>
 
               <div className="space-y-3">
-                {filtered.map(entry => (
+                {filtered.map(entry => {
+                  const d = getStuckPointDisplay(entry);
+                  return (
                   <div
                     key={entry.id}
                     className={`bg-white border rounded-xl overflow-hidden transition-shadow ${
@@ -106,15 +193,20 @@ export function StuckPointsPage() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <MessageSquare size={14} className="text-amber-600 shrink-0" />
-                            <span className="text-sm font-medium text-gray-800 line-clamp-2">
-                              {entry.chineseThought}
-                            </span>
+                          <div className="flex items-start gap-2">
+                            <MessageSquare size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                            <p className="min-w-0 flex-1 text-[15px] leading-snug line-clamp-3 text-left">
+                              <span className="font-medium text-gray-900">{d.chinese}</span>
+                              {d.titleEnglish ? (
+                                <>
+                                  <span className="mx-1.5 text-gray-300 font-normal select-none" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span className="text-sm text-gray-600 font-normal">{d.titleEnglish}</span>
+                                </>
+                              ) : null}
+                            </p>
                           </div>
-                          {entry.englishAttempt ? (
-                            <p className="text-xs text-gray-500 line-clamp-2 pl-5">尝试：{entry.englishAttempt}</p>
-                          ) : null}
                         </div>
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           <span className="text-xs text-gray-400">
@@ -135,10 +227,24 @@ export function StuckPointsPage() {
                     {expandedId === entry.id && (
                       <div className="px-4 pb-4 pt-0 border-t border-gray-50">
                         <div className="mt-3 space-y-3">
-                          <div>
-                            <div className="text-xs font-medium text-gray-500 mb-1">中文思路</div>
-                            <p className="text-sm text-gray-800">{entry.chineseThought}</p>
-                          </div>
+                          {(d.sourceLabel || d.practiceCollocation) ? (
+                            <div className="text-xs text-gray-500 pb-2 border-b border-gray-100 space-y-1">
+                              {d.sourceLabel ? (
+                                <div>
+                                  <span className="font-medium text-gray-600">来源</span>
+                                  <span className="mx-1 text-gray-300">·</span>
+                                  <span>{d.sourceLabel}</span>
+                                </div>
+                              ) : null}
+                              {d.practiceCollocation ? (
+                                <div>
+                                  <span className="font-medium text-gray-600">练习搭配</span>
+                                  <span className="mx-1 text-gray-300">·</span>
+                                  <span className="text-gray-600">{d.practiceCollocation}</span>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                           {entry.englishAttempt ? (
                             <div>
                               <div className="text-xs font-medium text-gray-500 mb-1">当时英文尝试</div>
@@ -146,13 +252,11 @@ export function StuckPointsPage() {
                             </div>
                           ) : null}
                           <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
-                            <div className="flex items-center gap-1.5 text-xs font-medium text-amber-800 mb-2">
-                              <Sparkles size={14} />
-                              AI 调度建议
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900 mb-2">
+                              <Sparkles size={14} className="shrink-0" />
+                              AI 建议
                             </div>
-                            <p className="text-sm text-amber-900 whitespace-pre-wrap leading-relaxed">
-                              {entry.aiSuggestion}
-                            </p>
+                            <StuckAiSuggestionBody text={entry.aiSuggestion} />
                           </div>
                           <div className="flex justify-end">
                             {!entry.resolved ? (
@@ -172,7 +276,8 @@ export function StuckPointsPage() {
                       </div>
                     )}
                   </div>
-                ))}
+                );
+                })}
                 {filtered.length === 0 && search && (
                   <div className="text-center py-8 text-gray-400 text-sm">未找到匹配「{search}」的记录</div>
                 )}
