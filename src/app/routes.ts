@@ -1,13 +1,15 @@
 import { createBrowserRouter } from 'react-router';
 import { Layout } from './components/Layout';
-import { HomePage } from './pages/HomePage';
 
 export const router = createBrowserRouter([
   {
     path: '/',
     Component: Layout,
     children: [
-      { index: true, Component: HomePage },
+      {
+        index: true,
+        lazy: () => import('./pages/HomePage').then(m => ({ Component: m.HomePage })),
+      },
       {
         path: 'foundry',
         lazy: () => import('./pages/FoundryPage').then(m => ({ Component: m.FoundryPage })),

@@ -1,11 +1,14 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { Sparkles, Loader2, Save, RefreshCw, BookOpen, Library, ChevronRight, BookMarked, HelpCircle } from 'lucide-react';
-import { getDailyCollocations } from '../data/verbData';
-import { aiGenerateVocabCard } from '../utils/api';
-import { scenarioTagsFromVocabItems } from '../utils/vocabCardScenarioTags';
+import { aiGenerateVocabCard, aiGenerateVocabCardRegisterGuide } from '../utils/api';
+import { pickWordLabCollocations } from '../utils/wordLabCollocations';
+import {
+  buildWordLabTags,
+} from '../utils/vocabCardScenarioTags';
 import { useStore } from '../store/StoreContext';
-import type { VocabCardItem } from '../store/useStore';
+import type { VocabCardItem, VocabCardRegisterGuide } from '../store/useStore';
+import { VocabRegisterGuideCard } from '../components/VocabRegisterGuideCard';
 import {
   Dialog,
   DialogContent,
@@ -15,16 +18,21 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 
-/** 搭配抽样数量：供模型白名单选用 */
-const VOCAB_LAB_COLLOCATION_COUNT = 12;
-
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+function hasDetailedRegisterGuide(input: {
+  registerNoteZh?: string;
+  registerGuide?: VocabCardRegisterGuide;
+}): boolean {
+  const guide = input.registerGuide;
+  const alternativesWithUsage = guide?.alternatives?.filter((alt) => alt.usageZh?.trim()) || [];
+  return Boolean(
+    input.registerNoteZh?.trim() &&
+      guide?.anchorZh?.trim() &&
+      alternativesWithUsage.length >= 2 &&
+      guide?.compareExamples?.original?.trim() &&
+      guide?.compareExamples?.spoken?.trim() &&
+      (guide?.pitfalls?.length ?? 0) >= 1 &&
+      (guide?.coreCollocations?.length ?? 0) >= 2
+  );
 }
 
 export function WordLabPage() {
@@ -40,13 +48,15 @@ export function WordLabPage() {
     spokenPracticePhrase: string;
     writtenSupplement: string | null;
     registerNoteZh?: string;
+    registerGuide?: VocabCardRegisterGuide;
     spokenAlternatives: string[];
     isCommonInSpokenEnglish: boolean;
   } | null>(null);
-  const [extraTags, setExtraTags] = useState('');
   const [senseHelpOpen, setSenseHelpOpen] = useState(false);
   const [dupPromptOpen, setDupPromptOpen] = useState(false);
   const [dupExistingCardId, setDupExistingCardId] = useState<string | null>(null);
+  const [dupPromptMode, setDupPromptMode] = useState<'generate' | 'save'>('generate');
+  const [confirmedDuplicateKey, setConfirmedDuplicateKey] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
   const recentVocabCards = useMemo(
@@ -54,7 +64,22 @@ export function WordLabPage() {
     [store.vocabCards]
   );
 
-  const runGenerate = useCallback(async () => {
+  const normalizeCardInput = useCallback((s: string) => s.trim().toLowerCase(), []);
+
+  const buildDuplicateKey = useCallback((hw: string, se: string) => {
+    return `${normalizeCardInput(hw)}\0${normalizeCardInput(se)}`;
+  }, [normalizeCardInput]);
+
+  const findExistingCard = useCallback((hw: string, se: string) => {
+    const normalizedHeadword = normalizeCardInput(hw);
+    const normalizedSense = normalizeCardInput(se);
+    return store.vocabCards.find(c =>
+      normalizeCardInput(c.headword) === normalizedHeadword &&
+      normalizeCardInput(c.sense ?? '') === normalizedSense
+    );
+  }, [store.vocabCards, normalizeCardInput]);
+
+  const runGenerateDirect = useCallback(async () => {
     const hw = headword.trim();
     if (!hw) {
       setError('请输入要练习的单词或短语');
@@ -64,36 +89,54 @@ export function WordLabPage() {
     setError(null);
     setPreview(null);
     try {
-      const collocations = shuffle(getDailyCollocations())
-        .slice(0, VOCAB_LAB_COLLOCATION_COUNT)
-        .map(({ verb, collocation }) => ({
-        phrase: collocation.phrase,
-        meaning: collocation.meaning,
-        verb: verb.verb,
-      }));
+      const collocations = pickWordLabCollocations();
       const res = await aiGenerateVocabCard({
         headword: hw,
         sense: sense.trim() || undefined,
         collocations,
       });
+      const registerRes = hasDetailedRegisterGuide(res)
+        ? res
+        : await aiGenerateVocabCardRegisterGuide({
+            headword: hw,
+            sense: sense.trim() || undefined,
+          });
+      const mergedRegisterGuide = registerRes.registerGuide ?? res.registerGuide;
+      const mergedRegisterNoteZh = registerRes.registerNoteZh ?? res.registerNoteZh;
+      const mergedSpokenAlternatives = registerRes.spokenAlternatives?.length
+        ? registerRes.spokenAlternatives
+        : res.spokenAlternatives;
+      const mergedSpokenPracticePhrase = registerRes.spokenPracticePhrase || res.spokenPracticePhrase;
+      const mergedWrittenSupplement =
+        registerRes.writtenSupplement != null ? registerRes.writtenSupplement : res.writtenSupplement;
+      const mergedIsCommon =
+        typeof registerRes.isCommonInSpokenEnglish === 'boolean'
+          ? registerRes.isCommonInSpokenEnglish
+          : res.isCommonInSpokenEnglish;
       const items: VocabCardItem[] = res.items.map((it, i) => ({
         id: `tmp-${i}`,
         questionId: 'daily',
         part: 0,
-        topic: '日常用语',
+        topic: i === 0 ? '日常用语' : '原词日常',
         questionSnapshot: '',
         sentence: it.sentence,
         collocationsUsed: it.collocationsUsed,
         chinese: it.chinese,
       }));
       setPreview({
-        tags: scenarioTagsFromVocabItems(items),
+        tags: buildWordLabTags({
+          headword: hw,
+          items,
+          isCommonInSpokenEnglish: mergedIsCommon,
+          registerGuide: mergedRegisterGuide,
+        }),
         items,
-        spokenPracticePhrase: res.spokenPracticePhrase,
-        writtenSupplement: res.writtenSupplement,
-        registerNoteZh: res.registerNoteZh,
-        spokenAlternatives: res.spokenAlternatives,
-        isCommonInSpokenEnglish: res.isCommonInSpokenEnglish,
+        spokenPracticePhrase: mergedSpokenPracticePhrase,
+        writtenSupplement: mergedWrittenSupplement,
+        registerNoteZh: mergedRegisterNoteZh,
+        registerGuide: mergedRegisterGuide,
+        spokenAlternatives: mergedSpokenAlternatives,
+        isCommonInSpokenEnglish: mergedIsCommon,
       });
     } catch (e: any) {
       setError(e?.message || '生成失败');
@@ -102,28 +145,44 @@ export function WordLabPage() {
     }
   }, [headword, sense]);
 
+  const runGenerate = useCallback(() => {
+    const hw = headword.trim();
+    if (!hw) {
+      setError('请输入要练习的单词或短语');
+      return;
+    }
+    const key = buildDuplicateKey(hw, sense);
+    const existing = findExistingCard(hw, sense);
+    if (existing && confirmedDuplicateKey !== key) {
+      setDupExistingCardId(existing.id);
+      setDupPromptMode('generate');
+      setDupPromptOpen(true);
+      return;
+    }
+    void runGenerateDirect();
+  }, [headword, sense, buildDuplicateKey, findExistingCard, confirmedDuplicateKey, runGenerateDirect]);
+
   const saveCardDirect = useCallback(() => {
     if (!preview) return;
-    const tags = [
-      ...preview.tags,
-      ...extraTags.split(/[,，]/).map(t => t.trim()).filter(Boolean),
-    ];
-    const uniq = Array.from(new Set(tags));
-    store.addVocabCard({
+    const newCard = store.addVocabCard({
       headword: headword.trim(),
       sense: sense.trim() || undefined,
-      tags: uniq,
+      tags: preview.tags,
       items: preview.items,
       spokenPracticePhrase: preview.spokenPracticePhrase,
       writtenSupplement: preview.writtenSupplement ?? undefined,
       registerNoteZh: preview.registerNoteZh,
+      registerGuide: preview.registerGuide,
       spokenAlternatives: preview.spokenAlternatives,
       isCommonInSpokenEnglish: preview.isCommonInSpokenEnglish,
     });
-    navigate('/vocab-review');
-  }, [preview, extraTags, headword, sense, store, navigate]);
+    navigate(`/vocab/${newCard.id}`);
+  }, [preview, headword, sense, store, navigate]);
 
-  const normalizeCardInput = useCallback((s: string) => s.trim().toLowerCase(), []);
+  useEffect(() => {
+    const currentKey = buildDuplicateKey(headword, sense);
+    setConfirmedDuplicateKey(prev => (prev === currentKey ? prev : null));
+  }, [headword, sense, buildDuplicateKey]);
 
   useEffect(() => {
     if (!previewRef.current) return;
@@ -135,19 +194,16 @@ export function WordLabPage() {
 
   const saveCard = useCallback(() => {
     if (!preview) return;
-    const hw = normalizeCardInput(headword);
-    const se = normalizeCardInput(sense);
-    const existing = store.vocabCards.find(c =>
-      normalizeCardInput(c.headword) === hw &&
-      normalizeCardInput(c.sense ?? '') === se
-    );
-    if (existing) {
+    const key = buildDuplicateKey(headword, sense);
+    const existing = findExistingCard(headword, sense);
+    if (existing && confirmedDuplicateKey !== key) {
       setDupExistingCardId(existing.id);
+      setDupPromptMode('save');
       setDupPromptOpen(true);
       return;
     }
     saveCardDirect();
-  }, [preview, headword, sense, store.vocabCards, normalizeCardInput, saveCardDirect]);
+  }, [preview, headword, sense, buildDuplicateKey, findExistingCard, confirmedDuplicateKey, saveCardDirect]);
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden bg-white">
@@ -298,7 +354,7 @@ export function WordLabPage() {
                 <BookOpen size={16} className="text-indigo-500 shrink-0" />
                 预览 · {headword.trim()}
               </h2>
-              <div className="rounded-lg border border-gray-100 bg-gray-50/90 px-3 py-2.5 text-[13px] leading-snug space-y-1.5">
+              <div className="rounded-lg border border-gray-100 bg-gray-50/90 px-3 py-2.5 text-[13px] leading-snug space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={`text-[10px] px-1.5 py-0.5 rounded-full ${
@@ -310,21 +366,14 @@ export function WordLabPage() {
                     {preview.isCommonInSpokenEnglish ? '口语常用' : '偏书面/少口语'}
                   </span>
                 </div>
-                <p className="text-gray-900">
-                  <span className="text-gray-400 text-[10px] uppercase tracking-wide mr-1">练习</span>
-                  {preview.spokenPracticePhrase}
-                </p>
-                {preview.writtenSupplement && (
-                  <p className="text-gray-600 text-[11px]">书面：{preview.writtenSupplement}</p>
-                )}
-                {preview.registerNoteZh && (
-                  <p className="text-[11px] text-violet-800/90 leading-relaxed">{preview.registerNoteZh}</p>
-                )}
-                {preview.spokenAlternatives.length > 1 && (
-                  <p className="text-[10px] text-gray-500 leading-relaxed">
-                    参考：{preview.spokenAlternatives.join(' · ')}
-                  </p>
-                )}
+                <VocabRegisterGuideCard
+                  headword={headword.trim()}
+                  spokenPracticePhrase={preview.spokenPracticePhrase}
+                  registerGuide={preview.registerGuide}
+                  registerNoteZh={preview.registerNoteZh}
+                  spokenAlternatives={preview.spokenAlternatives}
+                  compact
+                />
               </div>
               <div className="flex flex-wrap gap-1">
                 {preview.tags.map(t => (
@@ -333,18 +382,18 @@ export function WordLabPage() {
                   </span>
                 ))}
               </div>
-              <label className="block">
-                <span className="text-[10px] text-gray-400 mb-1 block">追加标签（可选）</span>
-                <input
-                  value={extraTags}
-                  onChange={e => setExtraTags(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-violet-400"
-                  placeholder="逗号分隔，如 面试、写作"
-                />
-              </label>
-              <div className="text-[13px] text-gray-800 leading-relaxed border border-gray-100 rounded-lg p-2.5 bg-gray-50/80">
-                {preview.items.map(it => (
-                  <div key={it.id}>
+              <div className="text-[13px] text-gray-800 leading-relaxed border border-gray-100 rounded-lg p-2.5 bg-gray-50/80 space-y-3">
+                {preview.items.map((it, idx) => (
+                  <div key={it.id} className={idx > 0 ? 'pt-2 border-t border-gray-200/80' : ''}>
+                    <span
+                      className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full mb-1.5 ${
+                        it.topic === '原词日常'
+                          ? 'bg-amber-50 text-amber-900 border border-amber-100'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200/80'
+                      }`}
+                    >
+                      {it.topic === '原词日常' ? '原词·日常说法' : '口语示范'}
+                    </span>
                     <p className="font-medium">{it.sentence}</p>
                     {it.chinese && <p className="text-gray-500 text-xs mt-1">{it.chinese}</p>}
                     <div className="flex flex-wrap gap-1 mt-1.5">
@@ -392,7 +441,9 @@ export function WordLabPage() {
           <DialogHeader>
             <DialogTitle>检测到重复卡片</DialogTitle>
             <DialogDescription>
-              当前已有此单词/短语卡片，是否还要创建？
+              {dupPromptMode === 'generate'
+                ? '当前已有此单词/短语卡片。继续生成会再次请求 AI 并消耗一次生成额度，是否继续？'
+                : '当前已有此单词/短语卡片，是否还要创建？'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -407,11 +458,17 @@ export function WordLabPage() {
               type="button"
               onClick={() => {
                 setDupPromptOpen(false);
+                const key = buildDuplicateKey(headword, sense);
+                setConfirmedDuplicateKey(key);
+                if (dupPromptMode === 'generate') {
+                  void runGenerateDirect();
+                  return;
+                }
                 saveCardDirect();
               }}
               className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm hover:bg-violet-700"
             >
-              仍创建
+              {dupPromptMode === 'generate' ? '继续生成' : '仍创建'}
             </button>
             <button
               type="button"

@@ -1,57 +1,66 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import * as SpeechSDK from 'microsoft-cognitiveservices-speech-sdk';
 import { getSpeechToken } from './api';
 
 export type SpeechStatus = 'idle' | 'connecting' | 'listening' | 'processing' | 'error' | 'unavailable';
 
+type SpeechSdkModule = typeof import('microsoft-cognitiveservices-speech-sdk');
+type SpeechRecognizer = import('microsoft-cognitiveservices-speech-sdk').SpeechRecognizer;
+
+let speechSdkPromise: Promise<SpeechSdkModule> | null = null;
+
+async function loadSpeechSdk(): Promise<SpeechSdkModule> {
+  if (!speechSdkPromise) {
+    speechSdkPromise = import('microsoft-cognitiveservices-speech-sdk');
+  }
+  return speechSdkPromise;
+}
+
 export function useSpeechRecognition() {
-  const [status, setStatus] = useState<SpeechStatus>('idle');
+  const hasMicApi = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+  const [status, setStatus] = useState<SpeechStatus>(hasMicApi ? 'idle' : 'unavailable');
   const [error, setError] = useState<string | null>(null);
   const [interimText, setInterimText] = useState('');
-  const [micAvailable, setMicAvailable] = useState<boolean | null>(null);
-  const recognizerRef = useRef<SpeechSDK.SpeechRecognizer | null>(null);
+  const [micAvailable, setMicAvailable] = useState<boolean | null>(hasMicApi ? null : false);
+  const recognizerRef = useRef<SpeechRecognizer | null>(null);
 
-  // Check microphone availability on mount
-  useEffect(() => {
-    checkMicrophoneAvailability();
-  }, []);
-
-  const checkMicrophoneAvailability = async (): Promise<boolean> => {
+  const checkMicrophoneAvailability = useCallback(async (): Promise<boolean> => {
     try {
-      // Check if getUserMedia API exists
       if (!navigator?.mediaDevices?.getUserMedia) {
         setMicAvailable(false);
         setStatus('unavailable');
         return false;
       }
 
-      // Check permission state if the API is available
       if (navigator.permissions && navigator.permissions.query) {
         try {
           const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
           if (result.state === 'denied') {
             setMicAvailable(false);
-            setStatus('unavailable');
             return false;
           }
         } catch {
-          // permissions.query may not support 'microphone' in all browsers — continue
+          // Some browsers do not support querying microphone permission.
         }
       }
 
-      // Try to actually acquire the mic stream
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Release the stream immediately
       stream.getTracks().forEach(t => t.stop());
       setMicAvailable(true);
       return true;
-    } catch (err: any) {
-      console.warn('Microphone not available:', err.name, err.message);
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      console.warn('Microphone not available:', e.message);
       setMicAvailable(false);
-      setStatus('unavailable');
       return false;
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      recognizerRef.current?.close();
+      recognizerRef.current = null;
+    };
+  }, []);
 
   const startListening = useCallback(async (
     onResult: (text: string) => void,
@@ -60,7 +69,6 @@ export function useSpeechRecognition() {
     setError(null);
     setInterimText('');
 
-    // Re-check mic availability before each attempt
     const available = await checkMicrophoneAvailability();
     if (!available) {
       setError('麦克风不可用：当前环境不允许访问麦克风。请在新标签页中打开本应用，或检查浏览器权限设置。');
@@ -71,7 +79,7 @@ export function useSpeechRecognition() {
     setStatus('connecting');
 
     try {
-      // Get token from backend
+      const SpeechSDK = await loadSpeechSdk();
       const { token, region } = await getSpeechToken();
 
       const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(token, region);
@@ -82,14 +90,12 @@ export function useSpeechRecognition() {
 
       recognizerRef.current = recognizer;
 
-      // Interim results (partial recognition)
       recognizer.recognizing = (_s, e) => {
         if (e.result.reason === SpeechSDK.ResultReason.RecognizingSpeech) {
           setInterimText(e.result.text);
         }
       };
 
-      // Final results
       recognizer.recognized = (_s, e) => {
         if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
           const text = e.result.text;
@@ -108,16 +114,19 @@ export function useSpeechRecognition() {
           setError(`语音识别出错: ${e.errorDetails}`);
           setStatus('error');
         }
-        recognizer.stopContinuousRecognitionAsync();
+        recognizer.stopContinuousRecognitionAsync(() => {
+          recognizer.close();
+          recognizerRef.current = null;
+        });
       };
 
       recognizer.sessionStopped = () => {
-        recognizer.stopContinuousRecognitionAsync();
+        recognizer.close();
+        recognizerRef.current = null;
         setStatus('idle');
         setInterimText('');
       };
 
-      // Start continuous recognition
       recognizer.startContinuousRecognitionAsync(
         () => {
           setStatus('listening');
@@ -128,12 +137,13 @@ export function useSpeechRecognition() {
           setStatus('error');
         }
       );
-    } catch (err: any) {
-      console.error('Speech recognition setup error:', err);
-      setError(err.message || '语音识别初始化失败');
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      console.error('Speech recognition setup error:', e);
+      setError(e.message || '语音识别初始化失败');
       setStatus('error');
     }
-  }, []);
+  }, [checkMicrophoneAvailability]);
 
   const stopListening = useCallback(() => {
     if (recognizerRef.current) {

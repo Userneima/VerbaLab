@@ -4,6 +4,7 @@ import type {
   ErrorBankEntry,
   StuckPointEntry,
   VocabCard,
+  VocabCardRegisterGuide,
 } from '../store/useStore';
 import type { FoundryExampleOverridePack } from './syncMerge';
 import { supabase } from './supabase';
@@ -351,7 +352,7 @@ export async function aiEvaluateAnswer(
   }
 }
 
-/** 词卡工坊：语体判断 + 按搭配白名单生成一条日常口语例句 */
+/** 词卡工坊：语体判断 + 按搭配白名单生成例句（口语目标 1 条；若原词偏书面与口语目标不同，再追加 1 条「原词在日常里怎么说」） */
 export async function aiGenerateVocabCard(payload: {
   headword: string;
   sense?: string;
@@ -364,6 +365,7 @@ export async function aiGenerateVocabCard(payload: {
   spokenAlternatives: string[];
   writtenSupplement: string | null;
   registerNoteZh?: string;
+  registerGuide?: VocabCardRegisterGuide;
   items: Array<{
     sentence: string;
     collocationsUsed: string[];
@@ -383,6 +385,60 @@ export async function aiGenerateVocabCard(payload: {
     if (/questions array is required/i.test(msg)) {
       throw new Error(
         '词卡云端仍是旧版接口（要求 questions）。请重新部署 Edge 函数：npx supabase functions deploy make-server-1fc434d6 --project-ref <Project ID>，与仓库中 supabase/functions/make-server-1fc434d6 代码保持一致。'
+      );
+    }
+    throw new Error(msg);
+  }
+}
+
+/** 仅生成语体解析：用于旧卡补全 registerGuide / note / 替换词 */
+export async function aiGenerateVocabCardRegisterGuide(payload: {
+  headword: string;
+  sense?: string;
+}): Promise<{
+  headword: string;
+  sense?: string;
+  spokenPracticePhrase: string;
+  isCommonInSpokenEnglish: boolean;
+  spokenAlternatives: string[];
+  writtenSupplement: string | null;
+  registerNoteZh?: string;
+  registerGuide?: VocabCardRegisterGuide;
+}> {
+  try {
+    return await postAiJson('/ai/vocab-card-register-guide', payload);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Register guide generation failed';
+    console.error('AI vocab-card-register-guide error:', { detail: String(msg).slice(0, 200) });
+    if (/404|not found/i.test(msg)) {
+      throw new Error(
+        '语体解析接口 404：云端尚未部署该路由。请重新部署 Edge 函数 make-server-1fc434d6。'
+      );
+    }
+    throw new Error(msg);
+  }
+}
+
+/** 仅生成一条「原词·日常」例句（旧卡补充，或单独扩展） */
+export async function aiGenerateVocabCardOriginalDaily(payload: {
+  headword: string;
+  sense?: string;
+  collocations: Array<{ phrase: string; meaning: string; verb: string }>;
+}): Promise<{
+  item: {
+    sentence: string;
+    collocationsUsed: string[];
+    chinese?: string;
+  };
+}> {
+  try {
+    return await postAiJson('/ai/vocab-card-original-daily', payload);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Original-daily sentence failed';
+    console.error('AI vocab-card-original-daily error:', { detail: String(msg).slice(0, 200) });
+    if (/404|not found/i.test(msg)) {
+      throw new Error(
+        '原词例句接口 404：云端尚未部署该路由。请在项目根目录执行：npx supabase functions deploy make-server-1fc434d6 --project-ref <Project ref>，确保 supabase/functions/make-server-1fc434d6 含 /ai/vocab-card-original-daily。'
       );
     }
     throw new Error(msg);

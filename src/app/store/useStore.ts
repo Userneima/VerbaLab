@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { syncSave, syncLoad } from '../utils/api';
 import {
   newCorpusEntryId,
   newErrorBankEntryId,
@@ -7,9 +6,6 @@ import {
   newVocabCardId,
 } from '../utils/ids';
 import {
-  mergeByIdNewerTimestamp,
-  mergeLearnedCollocationIds,
-  mergeFoundryExampleOverrides,
   type FoundryExampleOverridePack,
 } from '../utils/syncMerge';
 import {
@@ -28,6 +24,7 @@ import { normalizeErrorSentenceForDedupe } from '../utils/errorBankDedupe';
 import { corpusSentenceDedupeKey } from '../utils/corpusDedupe';
 import { isBlankVocabCard } from '../utils/vocabCardBlank';
 import { clearErrorReviewProduceDraft } from '../utils/errorReviewDraftStorage';
+import { useCloudSync } from './useCloudSync';
 
 export interface CorpusEntry {
   id: string;
@@ -111,6 +108,24 @@ export interface VocabCardItem {
   chinese?: string;
 }
 
+export interface VocabCardRegisterAlternative {
+  phrase: string;
+  labelZh: string;
+  usageZh?: string;
+}
+
+export interface VocabCardRegisterGuide {
+  anchorZh: string;
+  alternatives: VocabCardRegisterAlternative[];
+  compareExamples?: {
+    original: string;
+    spoken: string;
+  };
+  pitfalls?: string[];
+  coreCollocations?: string[];
+  tagHints?: string[];
+}
+
 export interface VocabCard {
   id: string;
   timestamp: string;
@@ -122,6 +137,7 @@ export interface VocabCard {
   writtenSupplement?: string;
   /** 为何采用口语说法的简短中文说明 */
   registerNoteZh?: string;
+  registerGuide?: VocabCardRegisterGuide;
   spokenAlternatives?: string[];
   isCommonInSpokenEnglish?: boolean;
   tags: string[];
@@ -147,6 +163,62 @@ function normalizeVocabCardItem(raw: unknown, idx: number, cardId: string): Voca
   };
 }
 
+function normalizeRegisterGuide(raw: unknown): VocabCardRegisterGuide | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const guide = raw as Record<string, unknown>;
+  const anchorZh = String(guide.anchorZh ?? '').trim();
+  const alternativesRaw = guide.alternatives;
+  const alternatives = Array.isArray(alternativesRaw)
+    ? alternativesRaw
+        .map((item) => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+          const alt = item as Record<string, unknown>;
+          const phrase = String(alt.phrase ?? '').trim();
+          const labelZh = String(alt.labelZh ?? '').trim();
+          if (!phrase || !labelZh) return null;
+          const usageZh = String(alt.usageZh ?? '').trim();
+          return {
+            phrase,
+            labelZh,
+            usageZh: usageZh || undefined,
+          };
+        })
+        .filter(Boolean) as VocabCardRegisterAlternative[]
+    : [];
+  const compareRaw = guide.compareExamples;
+  const compareExamples =
+    compareRaw && typeof compareRaw === 'object' && !Array.isArray(compareRaw)
+      ? (() => {
+          const example = compareRaw as Record<string, unknown>;
+          const original = String(example.original ?? '').trim();
+          const spoken = String(example.spoken ?? '').trim();
+          return original && spoken ? { original, spoken } : undefined;
+        })()
+      : undefined;
+  const pitfalls = Array.isArray(guide.pitfalls)
+    ? (guide.pitfalls as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+    : undefined;
+  const coreCollocations = Array.isArray(guide.coreCollocations)
+    ? (guide.coreCollocations as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+    : undefined;
+  const tagHints = Array.isArray(guide.tagHints)
+    ? (guide.tagHints as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+    : undefined;
+
+  if (!anchorZh && alternatives.length === 0 && !compareExamples && !pitfalls?.length && !coreCollocations?.length) {
+    return undefined;
+  }
+
+  return {
+    anchorZh,
+    alternatives,
+    compareExamples,
+    pitfalls: pitfalls?.length ? pitfalls : undefined,
+    coreCollocations: coreCollocations?.length ? coreCollocations : undefined,
+    tagHints: tagHints?.length ? tagHints : undefined,
+  };
+}
+
 function normalizeVocabCard(raw: unknown): VocabCard {
   const r = raw as Record<string, unknown>;
   const id = String(r?.id || newVocabCardId());
@@ -155,6 +227,7 @@ function normalizeVocabCard(raw: unknown): VocabCard {
     ? rawItems.map((it: unknown, i: number) => normalizeVocabCardItem(it, i, id))
     : [];
   const altRaw = r?.spokenAlternatives;
+  const registerGuide = normalizeRegisterGuide(r?.registerGuide);
   return {
     id,
     timestamp: String(r?.timestamp || new Date().toISOString()),
@@ -172,6 +245,7 @@ function normalizeVocabCard(raw: unknown): VocabCard {
       r?.registerNoteZh != null && String(r.registerNoteZh).trim()
         ? String(r.registerNoteZh).trim()
         : undefined,
+    registerGuide,
     spokenAlternatives: Array.isArray(altRaw)
       ? (altRaw as unknown[]).map(x => String(x).trim()).filter(Boolean)
       : undefined,
@@ -264,8 +338,6 @@ function saveToStorage<T>(key: string, value: T) {
   } catch {}
 }
 
-const DEBOUNCE_MS = 3000; // 3 seconds debounce for auto-sync
-
 export function useAppStore(accessToken: string | null) {
   const [corpus, setCorpus] = useState<CorpusEntry[]>(() =>
     loadFromStorage<CorpusEntry[]>('ff_corpus', [])
@@ -288,36 +360,8 @@ export function useAppStore(accessToken: string | null) {
   >(() => loadFromStorage<Record<string, FoundryExampleOverridePack>>('ff_foundry_examples', {}));
   const corpusDedupeIndexRef = useRef<Map<string, string>>(new Map());
   const errorDedupeIndexRef = useRef<Map<string, string>>(new Map());
-
-  // Sync state
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'loading' | 'success' | 'error'>('idle');
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() =>
-    localStorage.getItem('ff_last_sync')
-  );
-  const [syncError, setSyncError] = useState<string | null>(null);
-
-  // Auto sync toggle (persisted). Default OFF to avoid auth-thrash during setup.
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => {
-    const v = localStorage.getItem('ff_auto_sync');
-    if (v === null) return false;
-    return v === '1';
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('ff_auto_sync', autoSyncEnabled ? '1' : '0');
-    } catch {}
-  }, [autoSyncEnabled]);
-  
-  // Track whether initial cloud pull has been done for this session
-  const initialPullDone = useRef(false);
   /** 一次性：旧版 localStorage 语料中文缓存 → 写入 CorpusEntry.zhTranslation，便于走同步 */
   const legacyCorpusZhMigrated = useRef(false);
-  // Debounce timer ref
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Track data version changes for auto-sync
-  const dataVersion = useRef(0);
-  const lastSyncedVersion = useRef(0);
 
   useEffect(() => {
     if (legacyCorpusZhMigrated.current) return;
@@ -655,6 +699,7 @@ export function useAppStore(accessToken: string | null) {
       spokenPracticePhrase?: string;
       writtenSupplement?: string;
       registerNoteZh?: string;
+      registerGuide?: VocabCardRegisterGuide;
       spokenAlternatives?: string[];
       isCommonInSpokenEnglish?: boolean;
     }) => {
@@ -672,6 +717,7 @@ export function useAppStore(accessToken: string | null) {
         spokenPracticePhrase: input.spokenPracticePhrase?.trim() || undefined,
         writtenSupplement: input.writtenSupplement?.trim() || undefined,
         registerNoteZh: input.registerNoteZh?.trim() || undefined,
+        registerGuide: input.registerGuide,
         spokenAlternatives: input.spokenAlternatives?.length
           ? [...new Set(input.spokenAlternatives.map(s => s.trim()).filter(Boolean))]
           : undefined,
@@ -736,190 +782,36 @@ export function useAppStore(accessToken: string | null) {
     );
   }, []);
 
-  // ========== Cloud Sync ==========
-
-  const pushToCloud = useCallback(async () => {
-    if (!accessToken) {
-      setSyncError('未登录，无法同步');
-      setSyncStatus('error');
-      return;
-    }
-    setSyncStatus('saving');
-    setSyncError(null);
-    try {
-      const result = await syncSave(accessToken, {
-        corpus,
-        errorBank,
-        stuckPoints,
-        learnedCollocations: Array.from(learnedCollocations),
-        vocabCards,
-        foundryExampleOverrides,
-      });
-      const ts = result.timestamp;
-      setLastSyncTime(ts);
-      localStorage.setItem('ff_last_sync', ts);
-      lastSyncedVersion.current = dataVersion.current;
-      setSyncStatus('success');
-      setTimeout(() => setSyncStatus('idle'), 2000);
-    } catch (err: any) {
-      console.error('Push to cloud failed:', err);
-      setSyncError(err.message || 'Sync failed');
-      setSyncStatus('error');
-    }
-  }, [accessToken, corpus, errorBank, stuckPoints, learnedCollocations, vocabCards, foundryExampleOverrides]);
-
-  const pullFromCloud = useCallback(async () => {
-    if (!accessToken) {
-      setSyncError('未登录，无法同步');
-      setSyncStatus('error');
-      return;
-    }
-    setSyncStatus('loading');
-    setSyncError(null);
-    try {
-      const data = await syncLoad(accessToken, lastSyncTime);
-      const remoteVocab = (data.vocabCards || []).map(c => normalizeVocabCard(c));
-      setCorpus(prev => mergeByIdNewerTimestamp(prev, data.corpus || []));
-      setErrorBank(prev => mergeByIdNewerTimestamp(prev, data.errorBank || []));
-      setStuckPoints(prev => mergeByIdNewerTimestamp(prev, data.stuckPoints || []));
-      setLearnedCollocations(prev => mergeLearnedCollocationIds(prev, data.learnedCollocations));
-      setVocabCards(prev => mergeByIdNewerTimestamp(prev, remoteVocab).map(c => normalizeVocabCard(c)));
-      setFoundryExampleOverrides(prev =>
-        mergeFoundryExampleOverrides(prev, normalizeFoundryExampleOverrides(data.foundryExampleOverrides))
-      );
-      const ts = data.serverTimestamp || new Date().toISOString();
-      setLastSyncTime(ts);
-      localStorage.setItem('ff_last_sync', ts);
-      lastSyncedVersion.current = dataVersion.current;
-      setSyncStatus('success');
-      setTimeout(() => setSyncStatus('idle'), 2000);
-    } catch (err: any) {
-      console.error('Pull from cloud failed:', err);
-      setSyncError(err.message || 'Load failed');
-      setSyncStatus('error');
-    }
-  }, [accessToken, lastSyncTime]);
-
-  // Auto-pull from cloud on first login
-  useEffect(() => {
-    if (!autoSyncEnabled) return;
-    if (accessToken && !initialPullDone.current) {
-      initialPullDone.current = true;
-      (async () => {
-        setSyncStatus('loading');
-        setSyncError(null);
-        try {
-          const data = await syncLoad(accessToken, lastSyncTime);
-          const hasCloudData =
-            (data.corpus?.length > 0) ||
-            (data.errorBank?.length > 0) ||
-            (data.stuckPoints?.length > 0) ||
-            (data.learnedCollocations?.length > 0) ||
-            ((data.vocabCards?.length ?? 0) > 0) ||
-            Object.keys(normalizeFoundryExampleOverrides(data.foundryExampleOverrides)).length > 0;
-          if (hasCloudData) {
-            const remoteVocab = (data.vocabCards || []).map(c => normalizeVocabCard(c));
-            setCorpus(prev => mergeByIdNewerTimestamp(prev, data.corpus || []));
-            setErrorBank(prev => mergeByIdNewerTimestamp(prev, data.errorBank || []));
-            setStuckPoints(prev => mergeByIdNewerTimestamp(prev, data.stuckPoints || []));
-            setLearnedCollocations(prev => mergeLearnedCollocationIds(prev, data.learnedCollocations));
-            setVocabCards(prev =>
-              mergeByIdNewerTimestamp(prev, remoteVocab).map(c => normalizeVocabCard(c))
-            );
-            setFoundryExampleOverrides(prev =>
-              mergeFoundryExampleOverrides(prev, normalizeFoundryExampleOverrides(data.foundryExampleOverrides))
-            );
-          }
-          const ts = data.serverTimestamp || new Date().toISOString();
-          setLastSyncTime(ts);
-          localStorage.setItem('ff_last_sync', ts);
-          setSyncStatus('success');
-          setTimeout(() => setSyncStatus('idle'), 2000);
-        } catch (err: any) {
-          console.error('Initial pull from cloud failed:', err);
-          const msg = err?.message || 'Initial sync failed';
-          setSyncError(msg);
-          // If the session is invalid/expired, surface error and stop auto retry loops.
-          if (/invalid jwt/i.test(msg) || /session expired/i.test(msg)) {
-            setSyncStatus('error');
-            return;
-          }
-          setSyncStatus('idle');
-        }
-      })();
-    }
-    if (!accessToken) {
-      initialPullDone.current = false;
-    }
-  }, [accessToken, autoSyncEnabled, lastSyncTime]);
-
-  // Track data version changes
-  useEffect(() => {
-    dataVersion.current += 1;
-  }, [corpus, errorBank, stuckPoints, learnedCollocations, vocabCards, foundryExampleOverrides]);
-
   const vocabDueCount = useMemo(
     () => vocabCards.filter(c => isVocabCardDue(c.nextDueAt)).length,
     [vocabCards]
   );
 
-  // Auto debounce sync: when data changes and user is logged in
-  useEffect(() => {
-    if (!accessToken) return;
-    if (!autoSyncEnabled) return;
-    // If auth/session is broken, do not keep auto-syncing.
-    if (syncStatus === 'error' && syncError && (/invalid jwt/i.test(syncError) || /session expired/i.test(syncError))) {
-      return;
-    }
-    if (dataVersion.current <= 2) return;
-    if (dataVersion.current === lastSyncedVersion.current) return;
-
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
-    }
-
-    debounceTimer.current = setTimeout(async () => {
-      setSyncStatus('saving');
-      setSyncError(null);
-      try {
-        const result = await syncSave(accessToken, {
-          corpus,
-          errorBank,
-          stuckPoints,
-          learnedCollocations: Array.from(learnedCollocations),
-          vocabCards,
-          foundryExampleOverrides,
-        });
-        const ts = result.timestamp;
-        setLastSyncTime(ts);
-        localStorage.setItem('ff_last_sync', ts);
-        lastSyncedVersion.current = dataVersion.current;
-        setSyncStatus('success');
-        setTimeout(() => setSyncStatus('idle'), 2000);
-      } catch (err: any) {
-        console.error('Auto sync failed:', err);
-        setSyncError(err.message || 'Auto sync failed');
-        setSyncStatus('error');
-      }
-    }, DEBOUNCE_MS);
-
-    return () => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-      }
-    };
-  }, [
+  const {
+    syncStatus,
+    lastSyncTime,
+    syncError,
+    pushToCloud,
+    pullFromCloud,
+    autoSyncEnabled,
+    setAutoSyncEnabled,
+  } = useCloudSync({
     accessToken,
     corpus,
+    setCorpus,
     errorBank,
+    setErrorBank,
     stuckPoints,
+    setStuckPoints,
     learnedCollocations,
+    setLearnedCollocations,
     vocabCards,
+    setVocabCards,
     foundryExampleOverrides,
-    syncStatus,
-    syncError,
-    autoSyncEnabled,
-  ]);
+    setFoundryExampleOverrides,
+    normalizeVocabCard,
+    normalizeFoundryExampleOverrides,
+  });
 
   return {
     corpus,

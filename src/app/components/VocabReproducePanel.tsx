@@ -1,23 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Loader2, CheckCircle2, HelpCircle } from 'lucide-react';
-import { checkGrammar } from '../utils/grammarCheck';
-import { useSpeechRecognition } from '../utils/useSpeechRecognition';
+import { useState, useEffect, useMemo } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import {
-  buildClozeParts,
-  verifyClozeBlank,
-  sentenceContainsCollocation,
-  isTooSimilarToReference,
-} from '../utils/reviewGate';
+  type SentenceTile,
+  tokenizeSentenceToTiles,
+  buildShuffledTilePool,
+  verifyReconstructedSentence,
+} from '../utils/sentenceTileBank';
 
 type Props = {
-  /** 卡片上的参考例句（防照抄对比） */
+  /** 卡片上的参考例句（用户需复原） */
   referenceSentence: string;
-  /** 本项要挖空/必须包含的搭配 */
+  /** 本项训练的搭配（展示用，复原正确即已包含） */
   targetCollocation: string;
-  /** 中文提示（如题目翻译） */
+  /** 中文翻译：作题目提示 */
   cueZh?: string;
   onComplete: () => void;
-  /** 外部传入：本条已完成 */
   alreadyPassed: boolean;
 };
 
@@ -28,294 +25,142 @@ export function VocabReproducePanel({
   onComplete,
   alreadyPassed,
 }: Props) {
-  const { startListening, stopListening, isListening, interimText, error: speechErr, status: speechStatus } =
-    useSpeechRecognition();
-  const [clozePassed, setClozePassed] = useState(false);
-  const [clozeInput, setClozeInput] = useState('');
-  const [produceInput, setProduceInput] = useState('');
-  const produceInputRef = useRef<HTMLTextAreaElement>(null);
-  const [clozeError, setClozeError] = useState<string | null>(null);
-  const [produceError, setProduceError] = useState<string | null>(null);
-  const [aiHints, setAiHints] = useState<string[]>([]);
-  const [checking, setChecking] = useState(false);
-  const [showOriginal, setShowOriginal] = useState(false);
-  const [failStreak, setFailStreak] = useState(0);
-  const [done, setDone] = useState(false);
-  const [usedForgotOption, setUsedForgotOption] = useState(false);
-  const [showCollocationRuleTip, setShowCollocationRuleTip] = useState(false);
-
   const sessionKey = `${referenceSentence}\0${targetCollocation}`;
+
+  const refTiles = useMemo(() => tokenizeSentenceToTiles(referenceSentence), [referenceSentence]);
+  const distractorCount = useMemo(() => {
+    const n = refTiles.length;
+    return Math.min(6, Math.max(3, Math.floor(n / 2) + 2));
+  }, [refTiles.length]);
+
+  const [pool, setPool] = useState<SentenceTile[]>([]);
+  const [selected, setSelected] = useState<SentenceTile[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
     if (alreadyPassed) return;
-    setClozePassed(false);
-    setClozeInput('');
-    setProduceInput('');
-    setClozeError(null);
-    setProduceError(null);
-    setAiHints([]);
-    setShowOriginal(false);
-    setFailStreak(0);
+    setPool(buildShuffledTilePool(referenceSentence, distractorCount));
+    setSelected([]);
+    setError(null);
     setDone(false);
-    setUsedForgotOption(false);
-    setShowCollocationRuleTip(false);
-    return () => stopListening();
-  }, [sessionKey, alreadyPassed, stopListening]);
+  }, [sessionKey, referenceSentence, distractorCount, alreadyPassed]);
 
-  const clozeParts = buildClozeParts(referenceSentence, targetCollocation);
-
-  const submitCloze = () => {
-    setClozeError(null);
-    if (!verifyClozeBlank(clozeInput, targetCollocation)) {
-      setClozeError(
-        clozeParts
-          ? '请准确填写句中挖空处的搭配。'
-          : `请键入目标搭配：${targetCollocation}`
-      );
-      return;
-    }
-    setClozePassed(true);
+  const moveToAnswer = (tile: SentenceTile) => {
+    setError(null);
+    setPool(p => p.filter(t => t.id !== tile.id));
+    setSelected(s => [...s, tile]);
   };
 
-  const revealAndContinue = () => {
-    setClozeError(null);
-    setClozeInput(targetCollocation);
-    setUsedForgotOption(true);
-    setClozePassed(true);
+  const moveToPool = (tile: SentenceTile) => {
+    setError(null);
+    setSelected(s => s.filter(t => t.id !== tile.id));
+    setPool(p => [...p, tile]);
   };
 
-  const appendSpeechToProduce = (text: string) => {
-    const spoken = text?.trim();
-    if (!spoken) return;
-    const el = produceInputRef.current;
-    const active = typeof document !== 'undefined' && el && document.activeElement === el;
-    if (!active || !el) {
-      setProduceInput(prev => (prev ? `${prev.trim()} ${spoken}` : spoken));
+  const submit = () => {
+    setError(null);
+    if (selected.length !== refTiles.length) {
+      setError(`请排列 ${refTiles.length} 个词块（当前 ${selected.length} 个）。`);
       return;
     }
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? start;
-    setProduceInput(prev => {
-      const s = Math.max(0, Math.min(start, prev.length));
-      const e = Math.max(s, Math.min(end, prev.length));
-      const before = prev.slice(0, s);
-      const after = prev.slice(e);
-      const leftSpace = before && !/\s$/.test(before) ? ' ' : '';
-      const rightSpace = after && !/^\s/.test(after) ? ' ' : '';
-      const inserted = `${leftSpace}${spoken}${rightSpace}`;
-      const next = `${before}${inserted}${after}`;
-      const caret = before.length + inserted.length;
-      window.requestAnimationFrame(() => {
-        const node = produceInputRef.current;
-        if (!node) return;
-        node.focus();
-        node.setSelectionRange(caret, caret);
-      });
-      return next;
-    });
+    if (!verifyReconstructedSentence(selected, referenceSentence)) {
+      setError('顺序或词形不对，可点击已选词块放回下方重排。');
+      return;
+    }
+    setDone(true);
+    onComplete();
   };
 
-  const toggleSpeech = () => {
-    if (isListening) {
-      stopListening();
-      return;
-    }
-    startListening(appendSpeechToProduce, 'en-US');
-  };
-
-  const submitProduce = async () => {
-    setProduceError(null);
-    setAiHints([]);
-    const t = produceInput.trim();
-    if (!t) {
-      setProduceError('请先写一句完整英文。');
-      return;
-    }
-    if (isTooSimilarToReference(t, referenceSentence, 0.88)) {
-      setProduceError('与卡片例句过于相似，请换种说法（须保留目标搭配）。');
-      setFailStreak(fs => fs + 1);
-      return;
-    }
-    if (!sentenceContainsCollocation(t, targetCollocation)) {
-      setProduceError(`句中须包含：${targetCollocation}`);
-      setFailStreak(fs => fs + 1);
-      return;
-    }
-    setChecking(true);
-    try {
-      const result = await checkGrammar(t, targetCollocation);
-      if (!result.isCorrect) {
-        setAiHints(result.errors.map(e => e.hint || e.description));
-        setFailStreak(fs => fs + 1);
-        return;
-      }
-      setDone(true);
-      onComplete();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '网络错误，请稍后重试';
-      setProduceError(msg);
-    } finally {
-      setChecking(false);
-    }
-  };
+  const canCheck = refTiles.length > 0 && selected.length === refTiles.length && !done;
 
   if (alreadyPassed || done) {
     return (
       <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
         <CheckCircle2 size={16} className="shrink-0" />
-        本条再产出已完成，可标记复习结果。
+        句子复原正确，可标记复习结果。
       </div>
     );
   }
 
   const hintZh =
     cueZh?.trim() ||
-    '结合题目，用目标搭配写一句新的英文（勿照搬卡片例句）。';
+    '请根据中文提示，将词块排成与卡片一致的英文句（含标点与大小写习惯）。';
 
   return (
     <div className="space-y-3 border border-violet-200 rounded-xl p-3 bg-violet-50/40">
       <p className="text-[11px] text-violet-900 font-medium leading-relaxed">
-        到期复习：先填空再造句，通过后即可点下方「已浏览 / 记住了 / 还不太熟」。
+        到期复习：根据中文提示排列词块复原英文句，通过后即可点下方「已浏览 / 记住了 / 还不太熟」。
       </p>
 
-      {!clozePassed ? (
-        <div className="space-y-2">
-          <div className="text-[11px] font-semibold text-gray-600">第 1 步 · 填空</div>
-          {clozeParts ? (
-            <div className="text-sm text-gray-800 leading-relaxed break-words">
-              <span className="whitespace-pre-wrap">{clozeParts.before}</span>
-              <input
-                type="text"
-                value={clozeInput}
-                onChange={e => setClozeInput(e.target.value)}
-                placeholder="____"
-                className="inline-block align-baseline mx-1 my-1 min-w-[6rem] max-w-[min(100%,12rem)] border-b-2 border-violet-400 focus:outline-none focus:border-violet-600 bg-white px-1 py-0.5 rounded-t text-sm"
-                autoComplete="off"
-              />
-              <span className="whitespace-pre-wrap">{clozeParts.after}</span>
-            </div>
+      <div>
+        <div className="text-[11px] font-semibold text-gray-700 mb-1.5">翻译这句话</div>
+        <div className="rounded-lg border border-violet-100 bg-white px-3 py-2.5 text-sm text-gray-900 leading-relaxed">
+          {hintZh}
+        </div>
+      </div>
+
+      {targetCollocation?.trim() ? (
+        <p className="text-[10px] text-gray-500">
+          目标搭配：<span className="text-gray-700 font-medium">{targetCollocation}</span>
+        </p>
+      ) : null}
+
+      <div>
+        <div className="text-[11px] font-semibold text-gray-600 mb-1.5">你的英文</div>
+        <div
+          role="group"
+          aria-label="已排列的词块，点击可放回词库"
+          className="min-h-[3rem] flex flex-wrap gap-2 items-start content-start rounded-lg border-2 border-dashed border-violet-200 bg-white/90 px-2 py-2"
+        >
+          {selected.length === 0 ? (
+            <span className="text-[11px] text-gray-400 py-1">
+              点击下方词块依次加入（共需 {refTiles.length} 个）
+            </span>
           ) : (
-            <div className="space-y-2">
-              <p className="text-[11px] text-gray-600">请直接输入目标搭配：</p>
-              <input
-                type="text"
-                value={clozeInput}
-                onChange={e => setClozeInput(e.target.value)}
-                placeholder={targetCollocation}
-                className="w-full border border-violet-200 rounded-lg px-2 py-1.5 text-sm bg-white"
-                autoComplete="off"
-              />
-            </div>
-          )}
-          {clozeError && <p className="text-[11px] text-red-600">{clozeError}</p>}
-          <div className="flex flex-wrap gap-2 items-center">
-            <button
-              type="button"
-              onClick={submitCloze}
-              className="px-2.5 py-1 bg-violet-600 text-white rounded-lg text-[11px] font-medium hover:bg-violet-700"
-            >
-              检查填空
-            </button>
-            <button
-              type="button"
-              onClick={revealAndContinue}
-              className="px-2.5 py-1 border border-amber-200 text-amber-700 bg-amber-50 rounded-lg text-[11px] font-medium hover:bg-amber-100"
-            >
-              我忘记了（显示答案）
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-gray-600">
-            <span>第 2 步 · 造句（须含「{targetCollocation}」）</span>
-            <button
-              type="button"
-              onClick={() => setShowCollocationRuleTip(v => !v)}
-              className="inline-flex items-center text-violet-600 hover:text-violet-700"
-              aria-label="为什么必须包含这个搭配"
-              title="为什么必须包含这个搭配"
-            >
-              <HelpCircle size={11} />
-            </button>
-          </div>
-          {showCollocationRuleTip && (
-            <p className="text-[11px] text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-2 py-1.5 leading-relaxed">
-              这是本卡绑定的目标搭配。复习时强制保留它，是为了确认你在同一语言块上完成再产出，而不是换同义表达绕过训练。
-            </p>
-          )}
-          {usedForgotOption && (
-            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5">
-              已显示目标搭配：{targetCollocation}。请继续完成造句巩固记忆。
-            </p>
-          )}
-          <p className="text-[11px] text-gray-700 bg-white rounded-lg p-2 border border-violet-100 leading-relaxed">{hintZh}</p>
-          <textarea
-            ref={produceInputRef}
-            value={produceInput}
-            onChange={e => setProduceInput(e.target.value)}
-            placeholder="Write a new English sentence…"
-            rows={3}
-            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-violet-400 bg-white"
-          />
-          {(interimText || speechErr) && (
-            <p className="text-[11px] text-indigo-600">{interimText || speechErr}</p>
-          )}
-          <div className="flex flex-wrap gap-2 items-center">
-            <button
-              type="button"
-              onClick={toggleSpeech}
-              disabled={speechStatus === 'connecting' || speechStatus === 'unavailable'}
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border ${
-                isListening
-                  ? 'border-red-300 bg-red-50 text-red-700'
-                  : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              {isListening ? (
-                <>
-                  <MicOff size={12} /> 停止
-                </>
-              ) : (
-                <>
-                  <Mic size={12} /> 语音
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={submitProduce}
-              disabled={checking}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {checking ? <Loader2 size={12} className="animate-spin" /> : null}
-              提交批改
-            </button>
-          </div>
-          {produceError && <p className="text-[11px] text-red-600">{produceError}</p>}
-          {aiHints.length > 0 && (
-            <ul className="text-[11px] text-red-700 list-disc pl-4 space-y-0.5">
-              {aiHints.map((h, i) => (
-                <li key={i}>{h}</li>
-              ))}
-            </ul>
-          )}
-          {failStreak >= 2 && (
-            <div className="space-y-1">
+            selected.map(tile => (
               <button
+                key={tile.id}
                 type="button"
-                onClick={() => setShowOriginal(o => !o)}
-                className="text-[11px] text-violet-600 hover:text-violet-800"
+                onClick={() => moveToPool(tile)}
+                className="px-2.5 py-1.5 rounded-lg bg-violet-600 text-white text-sm font-medium shadow-sm hover:bg-violet-700 active:scale-[0.98] transition-transform"
               >
-                {showOriginal ? '隐藏' : '查看'}卡片例句参考
+                {tile.text}
               </button>
-              {showOriginal && (
-                <p className="text-[11px] text-gray-600 bg-white border border-gray-100 rounded p-2">{referenceSentence}</p>
-              )}
-            </div>
+            ))
           )}
         </div>
-      )}
+        <p className="text-[10px] text-gray-400 mt-1 tabular-nums">
+          已选 {selected.length} / {refTiles.length}
+        </p>
+      </div>
+
+      <div>
+        <div className="text-[11px] font-semibold text-gray-600 mb-1.5">词库</div>
+        <div className="flex flex-wrap gap-2">
+          {pool.map(tile => (
+            <button
+              key={tile.id}
+              type="button"
+              onClick={() => moveToAnswer(tile)}
+              className="px-2.5 py-1.5 rounded-lg border border-gray-200 bg-slate-100 text-gray-900 text-sm font-medium hover:bg-slate-200 active:scale-[0.98] transition-transform"
+            >
+              {tile.text}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error ? <p className="text-[11px] text-red-600">{error}</p> : null}
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={!canCheck}
+        className="w-full min-h-[44px] rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        检查
+      </button>
     </div>
   );
 }
