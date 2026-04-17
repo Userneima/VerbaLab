@@ -39,6 +39,24 @@ type UseCloudSyncArgs = {
 
 const DEBOUNCE_MS = 3000;
 
+function hasAnyLearningData(payload: {
+  corpus: CorpusEntry[];
+  errorBank: ErrorBankEntry[];
+  stuckPoints: StuckPointEntry[];
+  learnedCollocations: Iterable<string>;
+  vocabCards: VocabCard[];
+  foundryExampleOverrides: Record<string, FoundryExampleOverridePack>;
+}) {
+  return (
+    payload.corpus.length > 0 ||
+    payload.errorBank.length > 0 ||
+    payload.stuckPoints.length > 0 ||
+    Array.from(payload.learnedCollocations).length > 0 ||
+    payload.vocabCards.length > 0 ||
+    Object.keys(payload.foundryExampleOverrides).length > 0
+  );
+}
+
 export function useCloudSync({
   accessToken,
   corpus,
@@ -63,7 +81,7 @@ export function useCloudSync({
   const [syncError, setSyncError] = useState<string | null>(null);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => {
     const v = localStorage.getItem('ff_auto_sync');
-    if (v === null) return false;
+    if (v === null) return true;
     return v === '1';
   });
 
@@ -94,6 +112,33 @@ export function useCloudSync({
       foundryExampleOverrides,
     }),
     [corpus, errorBank, stuckPoints, learnedCollocations, vocabCards, foundryExampleOverrides]
+  );
+
+  const buildMergedPayload = useCallback(
+    (data: Awaited<ReturnType<typeof syncLoad>>) => {
+      const remoteVocab = (data.vocabCards || []).map(c => normalizeVocabCard(c));
+      const remoteFoundry = normalizeFoundryExampleOverrides(data.foundryExampleOverrides);
+      return {
+        corpus: mergeByIdNewerTimestamp(corpus, data.corpus || []),
+        errorBank: mergeByIdNewerTimestamp(errorBank, data.errorBank || []),
+        stuckPoints: mergeByIdNewerTimestamp(stuckPoints, data.stuckPoints || []),
+        learnedCollocations: Array.from(
+          mergeLearnedCollocationIds(learnedCollocations, data.learnedCollocations)
+        ),
+        vocabCards: mergeByIdNewerTimestamp(vocabCards, remoteVocab).map(c => normalizeVocabCard(c)),
+        foundryExampleOverrides: mergeFoundryExampleOverrides(foundryExampleOverrides, remoteFoundry),
+      };
+    },
+    [
+      corpus,
+      errorBank,
+      foundryExampleOverrides,
+      learnedCollocations,
+      normalizeFoundryExampleOverrides,
+      normalizeVocabCard,
+      stuckPoints,
+      vocabCards,
+    ]
   );
 
   const mergeRemoteData = useCallback(
@@ -179,7 +224,6 @@ export function useCloudSync({
   }, [corpus, errorBank, stuckPoints, learnedCollocations, vocabCards, foundryExampleOverrides]);
 
   useEffect(() => {
-    if (!autoSyncEnabled) return;
     if (accessToken && !initialPullDone.current) {
       initialPullDone.current = true;
       (async () => {
@@ -187,6 +231,7 @@ export function useCloudSync({
         setSyncError(null);
         try {
           const data = await syncLoad(accessToken, lastSyncTime);
+          const mergedPayload = buildMergedPayload(data);
           const hasCloudData =
             (data.corpus?.length > 0) ||
             (data.errorBank?.length > 0) ||
@@ -194,10 +239,21 @@ export function useCloudSync({
             (data.learnedCollocations?.length > 0) ||
             ((data.vocabCards?.length ?? 0) > 0) ||
             Object.keys(normalizeFoundryExampleOverrides(data.foundryExampleOverrides)).length > 0;
-          if (hasCloudData) {
-            mergeRemoteData(data);
+          const hasLocalData = hasAnyLearningData(buildPayload());
+
+          setCorpus(mergedPayload.corpus);
+          setErrorBank(mergedPayload.errorBank);
+          setStuckPoints(mergedPayload.stuckPoints);
+          setLearnedCollocations(new Set(mergedPayload.learnedCollocations));
+          setVocabCards(mergedPayload.vocabCards);
+          setFoundryExampleOverrides(mergedPayload.foundryExampleOverrides);
+
+          if (hasCloudData || hasLocalData) {
+            const result = await syncSave(accessToken, mergedPayload);
+            markSyncSuccess(result.timestamp);
+          } else {
+            markSyncSuccess(data.serverTimestamp || new Date().toISOString());
           }
-          markSyncSuccess(data.serverTimestamp || new Date().toISOString());
         } catch (err: unknown) {
           const e = err instanceof Error ? err : new Error(String(err));
           console.error('Initial pull from cloud failed:', e);
@@ -216,12 +272,20 @@ export function useCloudSync({
     }
   }, [
     accessToken,
-    autoSyncEnabled,
+    buildMergedPayload,
+    buildPayload,
     lastSyncTime,
     markSyncSuccess,
     mergeRemoteData,
     normalizeFoundryExampleOverrides,
   ]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    const existing = localStorage.getItem('ff_auto_sync');
+    if (existing !== null) return;
+    setAutoSyncEnabled(true);
+  }, [accessToken]);
 
   useEffect(() => {
     if (!accessToken || !autoSyncEnabled) return;
