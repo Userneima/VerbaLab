@@ -16,6 +16,21 @@ import { useSpeechRecognition } from '../utils/useSpeechRecognition';
 export type TestState = 'idle' | 'checking' | 'correct' | 'incorrect';
 export type NativeSuggestionState = { sentence: string; thinking?: string; savedToCorpus: boolean } | null;
 
+function pickDifficultyAssistExample(
+  examples: Array<{ scenario: 'daily' | 'zju' | 'design'; content: string; chinese?: string }>,
+  fallbackZh: string
+) {
+  const dailyWithZh = examples.find(ex => ex.scenario === 'daily' && ex.chinese?.trim());
+  const anyWithZh = examples.find(ex => ex.chinese?.trim());
+  const dailyAny = examples.find(ex => ex.scenario === 'daily');
+  const picked = dailyWithZh || anyWithZh || dailyAny || examples[0] || null;
+  if (!picked) return null;
+  return {
+    ...picked,
+    chinese: picked.chinese?.trim() || fallbackZh.trim(),
+  };
+}
+
 function getRandomContext(phrase: string): string {
   return getIELTSContextForPhrase(phrase);
 }
@@ -50,8 +65,15 @@ export function useLabPageController() {
   const [stuckLoading, setStuckLoading] = useState(false);
   const [stuckSuggestion, setStuckSuggestion] = useState<{ suggestion: string; type: 'corpus' | 'verb' | 'paraphrase' } | null>(null);
   const [nativeSuggestion, setNativeSuggestion] = useState<NativeSuggestionState>(null);
+  const [difficultyAssistLevel, setDifficultyAssistLevel] = useState<0 | 1 | 2>(0);
+  const [collocationPickerOpen, setCollocationPickerOpen] = useState(false);
   const [collocationSearch, setCollocationSearch] = useState('');
   const userInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const difficultyAssistExample = useMemo(
+    () => pickDifficultyAssistExample(currentItem.collocation.examples, contextStr),
+    [currentItem.collocation.examples, contextStr]
+  );
 
   const collocationSearchMatches = useMemo(
     () => searchCollocations(collocationSearch, 10),
@@ -79,6 +101,7 @@ export function useLabPageController() {
     setStuckInput('');
     setStuckSuggestion(null);
     setNativeSuggestion(null);
+    setDifficultyAssistLevel(0);
     setMobileRecentOpen(false);
   }, [speech]);
 
@@ -102,10 +125,27 @@ export function useLabPageController() {
       setStuckInput('');
       setStuckSuggestion(null);
       setNativeSuggestion(null);
+      setDifficultyAssistLevel(0);
       setCollocationSearch('');
+      setCollocationPickerOpen(false);
     },
     [speech]
   );
+
+  const handleLowerDifficulty = useCallback(() => {
+    if (!difficultyAssistExample) return;
+    setDifficultyAssistLevel(level => (level === 0 ? 1 : 2));
+  }, [difficultyAssistExample]);
+
+  const handleUseDifficultyAssistSentence = useCallback((sentence: string) => {
+    setUserInput(sentence);
+    window.requestAnimationFrame(() => {
+      const node = userInputRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(sentence.length, sentence.length);
+    });
+  }, []);
 
   const insertSpeechIntoUserInput = useCallback((text: string) => {
     const spoken = text?.trim();
@@ -278,9 +318,16 @@ export function useLabPageController() {
     labStuckOpen, setLabStuckOpen,
     stuckInput, setStuckInput, stuckLoading, stuckSuggestion, setStuckSuggestion,
     nativeSuggestion,
+    difficultyAssistLevel,
+    setDifficultyAssistLevel,
+    difficultyAssistExample,
+    collocationPickerOpen,
+    setCollocationPickerOpen,
     mobileRecentOpen, setMobileRecentOpen,
     isLearned: store.learnedCollocations.has(currentItem.collocation.id),
     loadNew, handleSubmit, handleKeyDown, handleToggleRecording, handleLabStuck, saveNativeSuggestionToCorpus, sendTutorMessage,
+    handleLowerDifficulty,
+    handleUseDifficultyAssistSentence,
     goCorpusSentence, goErrorEntry,
     collocationSearch,
     setCollocationSearch,
@@ -288,4 +335,3 @@ export function useLabPageController() {
     applyCollocationFromSearch,
   };
 }
-

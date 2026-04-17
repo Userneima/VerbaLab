@@ -82,6 +82,7 @@ export function VocabCardDetailPage() {
   const [registerGuideOpen, setRegisterGuideOpen] = useState(false);
   const [registerGuideLoading, setRegisterGuideLoading] = useState(false);
   const [registerGuideError, setRegisterGuideError] = useState<string | null>(null);
+  const [reviewSentenceMode, setReviewSentenceMode] = useState<'auto' | 'original' | 'spoken'>('auto');
 
   useEffect(() => {
     setTagsEditingOpen(false);
@@ -91,25 +92,10 @@ export function VocabCardDetailPage() {
     setRegisterGuideOpen(false);
     setRegisterGuideLoading(false);
     setRegisterGuideError(null);
+    setReviewSentenceMode('auto');
   }, [id]);
 
   const itemIdsKey = card?.items?.map(i => i.id).join('|') ?? '';
-
-  useEffect(() => {
-    if (!card?.items.length) {
-      setExpandedItemIds(new Set());
-      return;
-    }
-    setExpandedItemIds(prev => {
-      const next = new Set(
-        [...prev].filter((itemId) => card.items.some((it) => it.id === itemId))
-      );
-      if (next.size === 0 && card.items[0]?.id) {
-        next.add(card.items[0].id);
-      }
-      return next;
-    });
-  }, [card?.id, itemIdsKey]);
 
   const toggleZh = useCallback((itemId: string) => {
     setZhHiddenById(m => ({ ...m, [itemId]: !m[itemId] }));
@@ -142,6 +128,53 @@ export function VocabCardDetailPage() {
     if (spoken.toLowerCase() === card.headword.trim().toLowerCase()) return false;
     return !card.items.some(it => it.topic === '原词日常');
   }, [card]);
+
+  const hasOriginalReviewOption = useMemo(
+    () => !!card?.items.some((it) => it.topic === '原词日常'),
+    [card]
+  );
+
+  const hasSpokenReviewOption = useMemo(
+    () =>
+      !!card?.items.some(
+        (it) => it.part === 0 && (it.topic === '日常用语' || (!it.topic?.trim() && !it.questionSnapshot?.trim()))
+      ),
+    [card]
+  );
+
+  const canSwitchReviewSentence = hasOriginalReviewOption && hasSpokenReviewOption;
+
+  const reviewTargetItemId = useMemo(() => {
+    if (!card?.items.length) return null;
+    const originalItem = card.items.find((it) => it.topic === '原词日常');
+    const spokenItem = card.items.find(
+      (it) => it.part === 0 && (it.topic === '日常用语' || (!it.topic?.trim() && !it.questionSnapshot?.trim()))
+    );
+    if (reviewSentenceMode === 'original') {
+      return originalItem?.id ?? spokenItem?.id ?? card.items[0]?.id ?? null;
+    }
+    if (reviewSentenceMode === 'spoken') {
+      return spokenItem?.id ?? originalItem?.id ?? card.items[0]?.id ?? null;
+    }
+    return originalItem?.id ?? spokenItem?.id ?? card.items[0]?.id ?? null;
+  }, [card, reviewSentenceMode]);
+
+  useEffect(() => {
+    if (!card?.items.length) {
+      setExpandedItemIds(new Set());
+      return;
+    }
+    setExpandedItemIds(prev => {
+      const next = new Set(
+        [...prev].filter((itemId) => card.items.some((it) => it.id === itemId))
+      );
+      if (next.size === 0) {
+        const preferredId = reviewTargetItemId ?? card.items[0]?.id;
+        if (preferredId) next.add(preferredId);
+      }
+      return next;
+    });
+  }, [card?.id, itemIdsKey, reviewTargetItemId]);
 
   const appendOriginalDailyItem = useCallback(async () => {
     const c = store.vocabCards.find(x => x.id === id);
@@ -177,6 +210,7 @@ export function VocabCardDetailPage() {
         tags: mergedTags,
       });
       setExpandedItemIds(prev => new Set(prev).add(newItem.id));
+      setReviewSentenceMode((prev) => (prev === 'spoken' ? prev : 'original'));
     } catch (e: unknown) {
       setOrigError(e instanceof Error ? e.message : '生成失败');
     } finally {
@@ -214,6 +248,7 @@ export function VocabCardDetailPage() {
 
   const isDue = isVocabCardDue(card.nextDueAt);
   const anyReproPassed = passedReproItemIds.size > 0;
+  const reviewActionsUnlocked = !isDue || anyReproPassed;
   const hasRegisterShift =
     !!card.spokenPracticePhrase &&
     card.spokenPracticePhrase.trim().toLowerCase() !== card.headword.trim().toLowerCase();
@@ -433,64 +468,65 @@ export function VocabCardDetailPage() {
             )}
           </div>
 
-          {hasRegisterAnalysis ? (
-            <div className="shrink-0 px-4 py-3 border-b border-gray-100 bg-white">
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={toggleRegisterGuideOpen}
-                  className="w-full inline-flex items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2.5 text-left hover:bg-violet-50 transition-colors"
-                  aria-expanded={registerGuideOpen}
-                >
-                  <div className="min-w-0 flex-1 flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-900 shrink-0">语体解析</p>
-                    <p className="text-[11px] text-gray-500 truncate">
-                      {registerGuideOpen ? '点击收起' : '点击展开'}
-                    </p>
-                  </div>
-                  {registerGuideOpen ? (
-                    <ChevronUp size={18} className="text-violet-500 shrink-0" />
-                  ) : (
-                    <ChevronDown size={18} className="text-violet-500 shrink-0" />
-                  )}
-                </button>
-                {registerGuideOpen ? (
-                  registerGuideLoading && !registerGuideDetailed ? (
-                    <div className="rounded-xl border border-violet-200 ring-1 ring-violet-100/80 bg-violet-50/20 p-3">
-                      <div className="rounded-lg border border-gray-200 bg-white px-3 py-4 flex items-center gap-2 text-sm text-gray-600">
-                        <Loader2 size={16} className="animate-spin text-violet-500 shrink-0" />
-                        <span>正在补全语体解析…</span>
-                      </div>
-                    </div>
-                  ) : registerGuideError && !registerGuideDetailed ? (
-                    <div className="rounded-xl border border-red-200 bg-red-50/60 px-3 py-3 space-y-2">
-                      <p className="text-sm text-red-700">{registerGuideError}</p>
-                      <button
-                        type="button"
-                        onClick={() => void hydrateRegisterGuide()}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-red-200 bg-white text-red-700 text-xs font-medium hover:bg-red-50"
-                      >
-                        <RefreshCw size={14} className="shrink-0" />
-                        重新补全
-                      </button>
-                    </div>
-                  ) : (
-                    <VocabRegisterGuideCard
-                      headword={card.headword}
-                      spokenPracticePhrase={card.spokenPracticePhrase}
-                      registerGuide={card.registerGuide}
-                      registerNoteZh={card.registerNoteZh}
-                      spokenAlternatives={card.spokenAlternatives}
-                    />
-                  )
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
           {/* 例句区：中间可滚动 */}
           <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
-            <div className="space-y-2">
+            <div className="space-y-3">
+              {hasRegisterAnalysis ? (
+                <div className="bg-white">
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={toggleRegisterGuideOpen}
+                      className="w-full inline-flex items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2.5 text-left hover:bg-violet-50 transition-colors"
+                      aria-expanded={registerGuideOpen}
+                    >
+                      <div className="min-w-0 flex-1 flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900 shrink-0">语体解析</p>
+                        <p className="text-[11px] text-gray-500 truncate">
+                          {registerGuideOpen ? '点击收起' : '点击展开'}
+                        </p>
+                      </div>
+                      {registerGuideOpen ? (
+                        <ChevronUp size={18} className="text-violet-500 shrink-0" />
+                      ) : (
+                        <ChevronDown size={18} className="text-violet-500 shrink-0" />
+                      )}
+                    </button>
+                    {registerGuideOpen ? (
+                      registerGuideLoading && !registerGuideDetailed ? (
+                        <div className="rounded-xl border border-violet-200 ring-1 ring-violet-100/80 bg-violet-50/20 p-3">
+                          <div className="rounded-lg border border-gray-200 bg-white px-3 py-4 flex items-center gap-2 text-sm text-gray-600">
+                            <Loader2 size={16} className="animate-spin text-violet-500 shrink-0" />
+                            <span>正在补全语体解析…</span>
+                          </div>
+                        </div>
+                      ) : registerGuideError && !registerGuideDetailed ? (
+                        <div className="rounded-xl border border-red-200 bg-red-50/60 px-3 py-3 space-y-2">
+                          <p className="text-sm text-red-700">{registerGuideError}</p>
+                          <button
+                            type="button"
+                            onClick={() => void hydrateRegisterGuide()}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-red-200 bg-white text-red-700 text-xs font-medium hover:bg-red-50"
+                          >
+                            <RefreshCw size={14} className="shrink-0" />
+                            重新补全
+                          </button>
+                        </div>
+                      ) : (
+                        <VocabRegisterGuideCard
+                          headword={card.headword}
+                          spokenPracticePhrase={card.spokenPracticePhrase}
+                          registerGuide={card.registerGuide}
+                          registerNoteZh={card.registerNoteZh}
+                          spokenAlternatives={card.spokenAlternatives}
+                        />
+                      )
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
               {displayItems.map(it => {
                 const open = expandedItemIds.has(it.id);
                 const primaryLine = itemCollapsedPrimaryLine(it);
@@ -499,6 +535,7 @@ export function VocabCardDetailPage() {
                   (it.topic === '日常用语' ||
                     (!it.topic?.trim() && !it.questionSnapshot?.trim()));
                 const isOriginalDailyWordLabRow = it.part === 0 && it.topic === '原词日常';
+                const isReviewTargetItem = reviewTargetItemId === it.id;
                 const showHeaderMeta = open && it.collocationsUsed.length > 0;
                 const headerBadgeClassName = isColloquialWordLabRow
                   ? 'text-[10px] font-medium bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full shrink-0'
@@ -568,23 +605,23 @@ export function VocabCardDetailPage() {
                     </button>
                     {open && (
                       <div className="px-3 pb-3 pt-0 space-y-2 border-t border-gray-100">
-                        {isDue && !anyReproPassed && (
+                        {isDue && !anyReproPassed && isReviewTargetItem && (
                           <div className="pt-3">
                             <VocabReproducePanel
                               key={it.id}
                               referenceSentence={it.sentence}
                               targetCollocation={targetPhraseForItem(it)}
                               cueZh={it.chinese}
-                              alreadyPassed={false}
+                              alreadyPassed={passedReproItemIds.has(it.id)}
                               onComplete={() =>
                                 setPassedReproItemIds(prev => new Set(prev).add(it.id))
                               }
                             />
                           </div>
                         )}
-                        {isDue && !anyReproPassed && (
+                        {isDue && !anyReproPassed && isReviewTargetItem && (
                           <p className="text-[11px] text-violet-600 leading-relaxed">
-                            完成上方再产出后即可查看例句；任一条目通过即可解锁全部例句。
+                            完成当前复习句子的复原后即可查看例句；任一条目通过即可解锁全部例句。
                           </p>
                         )}
                         {(!isDue || anyReproPassed) && (
@@ -641,8 +678,86 @@ export function VocabCardDetailPage() {
                   </button>
                 </div>
               ) : null}
+              </div>
             </div>
           </div>
+
+          {isDue ? (
+            <div className="shrink-0 border-t border-gray-100 bg-white px-4 py-3">
+              <div className="space-y-2">
+                {(canSwitchReviewSentence || hasOriginalReviewOption) ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] text-gray-500">复习句子</span>
+                    {canSwitchReviewSentence ? (
+                      <div className="inline-flex rounded-full border border-gray-200 bg-gray-50 p-1">
+                        <button
+                          type="button"
+                          onClick={() => setReviewSentenceMode('original')}
+                          className={`rounded-full px-3 py-1 text-[11px] font-medium transition-colors ${
+                            (reviewSentenceMode === 'original' || (reviewSentenceMode === 'auto' && hasOriginalReviewOption))
+                              ? 'bg-white text-violet-700 shadow-sm'
+                              : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          原词句子
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReviewSentenceMode('spoken')}
+                          className={`rounded-full px-3 py-1 text-[11px] font-medium transition-colors ${
+                            reviewSentenceMode === 'spoken'
+                              ? 'bg-white text-violet-700 shadow-sm'
+                              : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          口语句子
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700">
+                        原词句子优先
+                      </span>
+                    )}
+                  </div>
+                ) : null}
+                {!reviewActionsUnlocked ? (
+                  <p className="text-[11px] text-violet-600 leading-relaxed">
+                    先完成当前复习句子的句子复原，再选择这次复习结果。
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-gray-500 leading-relaxed">
+                    选择这次复习结果后，会更新这张卡片的下次提醒时间。
+                  </p>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => store.markVocabCardViewed(card.id)}
+                    disabled={!reviewActionsUnlocked}
+                    className="min-h-[46px] rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    已浏览
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => store.markVocabCardRemembered(card.id)}
+                    disabled={!reviewActionsUnlocked}
+                    className="min-h-[46px] rounded-xl bg-emerald-600 px-3 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    记住了
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => store.markVocabCardStruggled(card.id)}
+                    disabled={!reviewActionsUnlocked}
+                    className="min-h-[46px] rounded-xl bg-amber-100 px-3 text-sm font-medium text-amber-900 transition-colors hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    还不太熟
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

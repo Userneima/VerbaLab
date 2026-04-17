@@ -1,4 +1,4 @@
-import { FlaskConical, History, RefreshCw, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, FlaskConical, History, RefreshCw, X } from 'lucide-react';
 import { ChallengeInput } from '../components/lab/ChallengeInput';
 import { FeedbackView } from '../components/lab/FeedbackView';
 import { RecentActivityPanel } from '../components/lab/RecentActivityPanel';
@@ -35,39 +35,55 @@ export function LabPage() {
           </div>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-          <div className="text-xs font-medium text-gray-600 mb-1">本题搭配（可选）</div>
-          <p className="text-[11px] text-gray-400 mb-2 leading-relaxed">
-            在下方搜索内置动词搭配并点选即可切换；或继续用右上角「换一题」随机。不必去资产区先选短语。
-          </p>
-          <input
-            type="search"
-            value={vm.collocationSearch}
-            onChange={e => vm.setCollocationSearch(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-400"
-            placeholder="搜索英文短语或中文释义…"
-            autoComplete="off"
-          />
-          {vm.collocationSearch.trim() && vm.collocationSearchMatches.length > 0 && (
-            <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-100 divide-y divide-gray-50">
-              {vm.collocationSearchMatches.map(row => (
-                <li key={row.collocation.id}>
-                  <button
-                    type="button"
-                    onClick={() => vm.applyCollocationFromSearch(row)}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50/80 transition-colors"
-                  >
-                    <span className="font-medium text-gray-800">{row.collocation.phrase}</span>
-                    <span className="block text-[11px] text-gray-500 mt-0.5">{row.collocation.meaning}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {vm.collocationSearch.trim() && vm.collocationSearchMatches.length === 0 && (
-            <p className="mt-2 text-[11px] text-gray-400">无匹配项，可换个关键词或随机一题。</p>
+          <button
+            type="button"
+            onClick={() => vm.setCollocationPickerOpen(v => !v)}
+            className="w-full flex items-start justify-between gap-3 text-left"
+          >
+            <div>
+              <div className="text-sm font-semibold text-gray-700">自选搭配练习</div>
+            </div>
+            <span className="mt-0.5 rounded-lg border border-gray-200 bg-gray-50 p-1.5 text-gray-500">
+              {vm.collocationPickerOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </span>
+          </button>
+
+          {vm.collocationPickerOpen && (
+            <div className="mt-3">
+              <input
+                type="search"
+                value={vm.collocationSearch}
+                onChange={e => vm.setCollocationSearch(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-400"
+                placeholder="输入中文短语释义或英语短语"
+                autoComplete="off"
+              />
+              {vm.collocationSearch.trim() && vm.collocationSearchMatches.length > 0 && (
+                <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-100 divide-y divide-gray-50">
+                  {vm.collocationSearchMatches.map(row => (
+                    <li key={row.collocation.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          vm.applyCollocationFromSearch(row);
+                          vm.setCollocationPickerOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50/80 transition-colors"
+                      >
+                        <span className="font-medium text-gray-800">{row.collocation.phrase}</span>
+                        <span className="block text-[11px] text-gray-500 mt-0.5">{row.collocation.meaning}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {vm.collocationSearch.trim() && vm.collocationSearchMatches.length === 0 && (
+                <p className="mt-2 text-[11px] text-gray-400">无匹配项，可换个关键词或收起后随机一题。</p>
+              )}
+            </div>
           )}
         </div>
-        <ChallengeInput phrase={vm.currentItem.collocation.phrase} meaning={vm.currentItem.collocation.meaning} verb={vm.currentItem.verb.verb} isLearned={vm.isLearned} contextStr={vm.contextStr} userInput={vm.userInput} submissionCount={vm.submissionCount} testState={vm.testState} onInputChange={vm.setUserInput} onKeyDown={vm.handleKeyDown} onSubmit={vm.handleSubmit} onOpenStuck={() => { vm.setLabStuckOpen(true); vm.setStuckSuggestion(null); }} onToggleRecording={vm.handleToggleRecording} speech={vm.speech} inputRef={vm.userInputRef} />
+        <ChallengeInput phrase={vm.currentItem.collocation.phrase} meaning={vm.currentItem.collocation.meaning} verb={vm.currentItem.verb.verb} isLearned={vm.isLearned} contextStr={vm.contextStr} userInput={vm.userInput} submissionCount={vm.submissionCount} testState={vm.testState} onInputChange={vm.setUserInput} onKeyDown={vm.handleKeyDown} onSubmit={vm.handleSubmit} onOpenStuck={() => { vm.setLabStuckOpen(true); vm.setStuckSuggestion(null); }} onLowerDifficulty={vm.handleLowerDifficulty} onSetDifficultyAssistLevel={vm.setDifficultyAssistLevel} difficultyAssistLevel={vm.difficultyAssistLevel} hasDifficultyAssist={Boolean(vm.difficultyAssistExample)} difficultyAssistExample={vm.difficultyAssistExample} onUseDifficultyAssistSentence={vm.handleUseDifficultyAssistSentence} onToggleRecording={vm.handleToggleRecording} speech={vm.speech} inputRef={vm.userInputRef} />
         {vm.labStuckOpen && <StuckAssistantPanel phrase={vm.currentItem.collocation.phrase} stuckInput={vm.stuckInput} stuckLoading={vm.stuckLoading} suggestion={vm.stuckSuggestion} onClose={() => { vm.setLabStuckOpen(false); vm.setStuckSuggestion(null); }} onInputChange={vm.setStuckInput} onSubmit={vm.handleLabStuck} onClearSuggestion={() => vm.setStuckSuggestion(null)} />}
         <FeedbackView testState={vm.testState} userInput={vm.userInput} showExamples={vm.showExamples} onToggleExamples={() => vm.setShowExamples(v => !v)} onLoadNew={vm.loadNew} onOpenStuck={() => { vm.setLabStuckOpen(true); vm.setStuckSuggestion(null); }} nativeSuggestion={vm.nativeSuggestion} onSaveNative={vm.saveNativeSuggestionToCorpus} errors={vm.errors} overallHint={vm.overallHint} expandedError={vm.expandedError} onToggleError={i => vm.setExpandedError(vm.expandedError === i ? null : i)} tutor={{ messages: vm.tutorMessages, input: vm.tutorInput, loading: vm.tutorLoading, error: vm.tutorError, onInputChange: vm.setTutorInput, onSend: vm.sendTutorMessage }} />
         {vm.showExamples && vm.testState === 'correct' && <ReferenceExamplesPanel collocationId={vm.currentItem.collocation.id} phrase={vm.currentItem.collocation.phrase} examples={vm.currentItem.collocation.examples} showLabTranslationGlobal={vm.showLabTranslationGlobal} clickedLabExampleKey={vm.clickedLabExampleKey} onToggleGlobalTranslation={() => vm.setShowLabTranslationGlobal(v => !v)} onToggleExample={key => vm.setClickedLabExampleKey(k => (k === key ? null : key))} />}
@@ -79,4 +95,3 @@ export function LabPage() {
     </div>
   </div>;
 }
-
