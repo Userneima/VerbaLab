@@ -631,6 +631,23 @@ export function useAppStore(accessToken: string | null) {
     setErrorBank(prev => prev.filter(e => e.id !== errorId));
   }, []);
 
+  const setErrorBankCorrectedSentence = useCallback((errorId: string, correctedSentence: string) => {
+    const trimmed = correctedSentence.trim();
+    if (!trimmed) return;
+    const now = new Date().toISOString();
+    setErrorBank(prev =>
+      prev.map(e =>
+        e.id === errorId
+          ? {
+              ...e,
+              correctedSentence: trimmed,
+              timestamp: now,
+            }
+          : e
+      )
+    );
+  }, []);
+
   const setErrorReviewReproClozeDone = useCallback((errorId: string, done: boolean) => {
     setErrorBank(prev =>
       prev.map(e => (e.id === errorId ? { ...e, reviewReproClozeDone: done } : e))
@@ -736,8 +753,9 @@ export function useAppStore(accessToken: string | null) {
   );
 
   const updateVocabCard = useCallback((cardId: string, patch: Partial<VocabCard>) => {
+    const now = new Date().toISOString();
     setVocabCards(prev =>
-      prev.map(c => (c.id === cardId ? { ...c, ...patch, id: c.id } : c))
+      prev.map(c => (c.id === cardId ? { ...c, ...patch, id: c.id, timestamp: now } : c))
     );
   }, []);
 
@@ -753,6 +771,7 @@ export function useAppStore(accessToken: string | null) {
         if (c.id !== cardId) return c;
         return {
           ...c,
+          timestamp: now,
           lastViewedAt: now,
           nextDueAt: computeNextDueAfterView(c.reviewStage),
         };
@@ -766,7 +785,7 @@ export function useAppStore(accessToken: string | null) {
       prev.map(c => {
         if (c.id !== cardId) return c;
         const { reviewStage, nextDueAt } = computeAfterRemembered(c.reviewStage);
-        return { ...c, lastViewedAt: now, reviewStage, nextDueAt };
+        return { ...c, timestamp: now, lastViewedAt: now, reviewStage, nextDueAt };
       })
     );
   }, []);
@@ -777,7 +796,7 @@ export function useAppStore(accessToken: string | null) {
       prev.map(c => {
         if (c.id !== cardId) return c;
         const { reviewStage, nextDueAt } = computeAfterStruggled();
-        return { ...c, lastViewedAt: now, reviewStage, nextDueAt };
+        return { ...c, timestamp: now, lastViewedAt: now, reviewStage, nextDueAt };
       })
     );
   }, []);
@@ -831,6 +850,7 @@ export function useAppStore(accessToken: string | null) {
     addToErrorBank,
     recordErrorReviewAttempt,
     setErrorReviewReproClozeDone,
+    setErrorBankCorrectedSentence,
     resolveError,
     removeErrorBankEntry,
     scheduleNextReview,

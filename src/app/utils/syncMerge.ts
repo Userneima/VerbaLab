@@ -29,6 +29,90 @@ export function mergeByIdNewerTimestamp<T extends { id: string; timestamp: strin
   return [...byId.values()].sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 }
 
+type SyncableVocabCard = {
+  id: string;
+  timestamp: string;
+  lastViewedAt?: string | null;
+  nextDueAt?: string | null;
+  reviewStage?: number | null;
+};
+
+function maxIsoTimestamp(...values: Array<string | null | undefined>): string {
+  return values
+    .map(v => String(v || ''))
+    .filter(Boolean)
+    .sort()
+    .at(-1) || '';
+}
+
+function pickVocabReviewWinner<T extends SyncableVocabCard>(left: T, right: T): T {
+  const leftViewed = String(left.lastViewedAt || '');
+  const rightViewed = String(right.lastViewedAt || '');
+  if (leftViewed !== rightViewed) return leftViewed > rightViewed ? left : right;
+
+  const leftStage = typeof left.reviewStage === 'number' ? left.reviewStage : -1;
+  const rightStage = typeof right.reviewStage === 'number' ? right.reviewStage : -1;
+  if (leftStage !== rightStage) return leftStage > rightStage ? left : right;
+
+  const leftDue = String(left.nextDueAt || '');
+  const rightDue = String(right.nextDueAt || '');
+  if (leftDue !== rightDue) return leftDue > rightDue ? left : right;
+
+  return String(left.timestamp || '') >= String(right.timestamp || '') ? left : right;
+}
+
+/**
+ * 词卡合并与普通条目不同：
+ * 内容字段优先取较新的 timestamp，
+ * 复习字段优先取较新的复习状态，避免某端复习结果被旧快照覆盖。
+ */
+export function mergeVocabCards<T extends SyncableVocabCard>(local: T[], remote: T[]): T[] {
+  const byId = new Map<string, T>();
+
+  for (const remoteCard of remote) {
+    if (!remoteCard?.id) continue;
+    byId.set(remoteCard.id, remoteCard);
+  }
+
+  for (const localCard of local) {
+    if (!localCard?.id) continue;
+    const remoteCard = byId.get(localCard.id);
+    if (!remoteCard) {
+      byId.set(localCard.id, localCard);
+      continue;
+    }
+
+    const contentWinner =
+      String(localCard.timestamp || '') >= String(remoteCard.timestamp || '')
+        ? localCard
+        : remoteCard;
+    const reviewWinner = pickVocabReviewWinner(localCard, remoteCard);
+
+    const merged = {
+      ...contentWinner,
+      lastViewedAt:
+        reviewWinner.lastViewedAt === undefined ? contentWinner.lastViewedAt ?? null : reviewWinner.lastViewedAt,
+      nextDueAt:
+        reviewWinner.nextDueAt === undefined ? contentWinner.nextDueAt ?? null : reviewWinner.nextDueAt,
+      reviewStage:
+        typeof reviewWinner.reviewStage === 'number'
+          ? reviewWinner.reviewStage
+          : (contentWinner.reviewStage ?? 0),
+      // 用最近的“内容更新时间 / 最近复习时间”作为合并后的时间戳，
+      // 让后续自动同步能把修复后的复习状态继续带出去。
+      timestamp: maxIsoTimestamp(
+        contentWinner.timestamp,
+        reviewWinner.timestamp,
+        reviewWinner.lastViewedAt,
+      ),
+    } satisfies T;
+
+    byId.set(localCard.id, merged);
+  }
+
+  return [...byId.values()].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+}
+
 export function mergeLearnedCollocationIds(local: Set<string>, remote: string[] | undefined): Set<string> {
   const next = new Set(local);
   for (const id of remote || []) {

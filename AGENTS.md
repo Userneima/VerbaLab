@@ -201,11 +201,68 @@ If you change any of the following, verify extra carefully:
 
 ---
 
+# Problem Solving Principles
+
+## Fix Root Cause and Prevent Recurrence
+
+When a problem is found, do not stop at fixing the visible symptom.
+
+Always try to do all of the following:
+
+1. identify the direct cause
+2. identify why the issue was able to happen
+3. make the smallest effective change that prevents the same class of problem from happening again
+4. apply that preventive improvement immediately when appropriate
+
+Typical preventive improvements include:
+
+- add validation
+- tighten types
+- add error handling
+- add tests
+- add lint / build / verification coverage
+- improve config defaults
+- improve documentation or structure rules
+
+Prefer root-cause fixes plus recurrence prevention over one-off patches.
+
+---
+
 # Supabase and Deployment Notes
 
 - Main Supabase project ref: `ztlrrovudbkmqqjaqhfu`
 - Main AI function: `make-server-1fc434d6`
 - Vercel is used for deployment
+
+Deployment default for this project:
+
+- for meaningful product/code changes that affect behavior, treat `验证通过后推送并触发部署` as the default
+- do not wait for an extra reminder to push/deploy after important validated changes
+- still pause first for destructive, risky, or ambiguous deployment-impacting actions
+- if the user explicitly says not to deploy, that instruction overrides this default
+
+## Change Management
+
+Large product changes should be synchronized to GitHub automatically after local validation passes.
+
+A large / major product change includes:
+
+- new core feature
+- major interaction flow change
+- significant UI / UX revision
+- architecture-affecting refactor
+- important product logic change
+
+Expected workflow:
+
+1. complete implementation
+2. run relevant validation (`typecheck`, `test`, `build` when applicable)
+3. write a clear English commit message
+4. commit changes
+5. push to GitHub
+
+Do not skip validation before push.
+If there is real risk of breaking production, note that risk clearly before pushing or deploying.
 
 If changing cross-origin API behavior, check CORS settings in the Edge Function and Supabase secrets.
 

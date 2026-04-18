@@ -118,6 +118,142 @@ async function requireAuth(c: any): Promise<
   return { ok: true, userId };
 }
 
+function mergeByIdNewerTimestamp<T extends { id: string; timestamp?: string }>(
+  local: T[] | undefined,
+  remote: T[] | undefined,
+): T[] {
+  const byId = new Map<string, T>();
+
+  for (const item of remote || []) {
+    if (!item?.id) continue;
+    byId.set(item.id, item);
+  }
+
+  for (const item of local || []) {
+    if (!item?.id) continue;
+    const existing = byId.get(item.id);
+    if (!existing) {
+      byId.set(item.id, item);
+      continue;
+    }
+    const lt = item.timestamp || "";
+    const rt = existing.timestamp || "";
+    byId.set(item.id, lt >= rt ? item : existing);
+  }
+
+  return [...byId.values()].sort((a, b) =>
+    String(b.timestamp || "").localeCompare(String(a.timestamp || ""))
+  );
+}
+
+type SyncableVocabCard = {
+  id: string;
+  timestamp?: string;
+  lastViewedAt?: string | null;
+  nextDueAt?: string | null;
+  reviewStage?: number | null;
+};
+
+function maxIsoTimestamp(...values: Array<string | null | undefined>): string {
+  return values
+    .map((v) => String(v || ""))
+    .filter(Boolean)
+    .sort()
+    .at(-1) || "";
+}
+
+function pickVocabReviewWinner<T extends SyncableVocabCard>(left: T, right: T): T {
+  const leftViewed = String(left.lastViewedAt || "");
+  const rightViewed = String(right.lastViewedAt || "");
+  if (leftViewed !== rightViewed) return leftViewed > rightViewed ? left : right;
+
+  const leftStage = typeof left.reviewStage === "number" ? left.reviewStage : -1;
+  const rightStage = typeof right.reviewStage === "number" ? right.reviewStage : -1;
+  if (leftStage !== rightStage) return leftStage > rightStage ? left : right;
+
+  const leftDue = String(left.nextDueAt || "");
+  const rightDue = String(right.nextDueAt || "");
+  if (leftDue !== rightDue) return leftDue > rightDue ? left : right;
+
+  return String(left.timestamp || "") >= String(right.timestamp || "") ? left : right;
+}
+
+function mergeVocabCards<T extends SyncableVocabCard>(
+  local: T[] | undefined,
+  remote: T[] | undefined,
+): T[] {
+  const byId = new Map<string, T>();
+
+  for (const remoteCard of remote || []) {
+    if (!remoteCard?.id) continue;
+    byId.set(remoteCard.id, remoteCard);
+  }
+
+  for (const localCard of local || []) {
+    if (!localCard?.id) continue;
+    const remoteCard = byId.get(localCard.id);
+    if (!remoteCard) {
+      byId.set(localCard.id, localCard);
+      continue;
+    }
+
+    const contentWinner =
+      String(localCard.timestamp || "") >= String(remoteCard.timestamp || "")
+        ? localCard
+        : remoteCard;
+    const reviewWinner = pickVocabReviewWinner(localCard, remoteCard);
+
+    byId.set(localCard.id, {
+      ...contentWinner,
+      lastViewedAt:
+        reviewWinner.lastViewedAt === undefined ? contentWinner.lastViewedAt ?? null : reviewWinner.lastViewedAt,
+      nextDueAt:
+        reviewWinner.nextDueAt === undefined ? contentWinner.nextDueAt ?? null : reviewWinner.nextDueAt,
+      reviewStage:
+        typeof reviewWinner.reviewStage === "number"
+          ? reviewWinner.reviewStage
+          : (contentWinner.reviewStage ?? 0),
+      timestamp: maxIsoTimestamp(
+        contentWinner.timestamp,
+        reviewWinner.timestamp,
+        reviewWinner.lastViewedAt,
+      ),
+    } as T);
+  }
+
+  return [...byId.values()].sort((a, b) =>
+    String(b.timestamp || "").localeCompare(String(a.timestamp || ""))
+  );
+}
+
+function mergeLearnedIds(
+  local: string[] | undefined,
+  remote: string[] | undefined,
+): string[] {
+  return [...new Set([...(remote || []), ...(local || [])].map((x) => String(x).trim()).filter(Boolean))];
+}
+
+type FoundryPack = { items: Array<{ content: string; chinese?: string }>; updatedAt?: string };
+
+function mergeFoundryExampleOverrides(
+  local: Record<string, FoundryPack> | undefined,
+  remote: Record<string, FoundryPack> | undefined,
+): Record<string, FoundryPack> {
+  const out: Record<string, FoundryPack> = { ...(remote || {}) };
+  for (const [key, localPack] of Object.entries(local || {})) {
+    if (!localPack || typeof localPack !== "object" || !Array.isArray(localPack.items)) continue;
+    const remotePack = out[key];
+    if (!remotePack || typeof remotePack !== "object" || !Array.isArray(remotePack.items)) {
+      out[key] = localPack;
+      continue;
+    }
+    out[key] = String(localPack.updatedAt || "") >= String(remotePack.updatedAt || "")
+      ? localPack
+      : remotePack;
+  }
+  return out;
+}
+
 // Enable logger
 app.use("*", logger(console.log));
 
@@ -251,6 +387,44 @@ app.post("/make-server-1fc434d6/sync/save", async (c) => {
 
     const prefix = `ffu_${userId}`;
 
+    const [remoteCorpus, remoteErrorBank, remoteStuckPoints, remoteLearnedCollocations, remoteVocabCards, remoteFoundryExampleOverrides] = await kv.mget([
+      `${prefix}_corpus`,
+      `${prefix}_errors`,
+      `${prefix}_stuck`,
+      `${prefix}_learned`,
+      `${prefix}_vocab`,
+      `${prefix}_foundry_examples`,
+    ]);
+
+    const mergedCorpus = mergeByIdNewerTimestamp(
+      Array.isArray(corpus) ? corpus : [],
+      Array.isArray(remoteCorpus) ? remoteCorpus : [],
+    );
+    const mergedErrorBank = mergeByIdNewerTimestamp(
+      Array.isArray(errorBank) ? errorBank : [],
+      Array.isArray(remoteErrorBank) ? remoteErrorBank : [],
+    );
+    const mergedStuckPoints = mergeByIdNewerTimestamp(
+      Array.isArray(stuckPoints) ? stuckPoints : [],
+      Array.isArray(remoteStuckPoints) ? remoteStuckPoints : [],
+    );
+    const mergedLearnedCollocations = mergeLearnedIds(
+      Array.isArray(learnedCollocations) ? learnedCollocations : [],
+      Array.isArray(remoteLearnedCollocations) ? remoteLearnedCollocations : [],
+    );
+    const mergedVocabCards = mergeVocabCards(
+      Array.isArray(vocabCards) ? vocabCards : [],
+      Array.isArray(remoteVocabCards) ? remoteVocabCards : [],
+    );
+    const mergedFoundryExampleOverrides = mergeFoundryExampleOverrides(
+      foundryExampleOverrides && typeof foundryExampleOverrides === "object" && !Array.isArray(foundryExampleOverrides)
+        ? foundryExampleOverrides
+        : {},
+      remoteFoundryExampleOverrides && typeof remoteFoundryExampleOverrides === "object" && !Array.isArray(remoteFoundryExampleOverrides)
+        ? remoteFoundryExampleOverrides
+        : {},
+    );
+
     const nowIso = new Date().toISOString();
     const syncMeta = {
       updatedAt: nowIso,
@@ -272,20 +446,18 @@ app.post("/make-server-1fc434d6/sync/save", async (c) => {
         `${prefix}_sync_meta`,
       ],
       [
-        corpus || [],
-        errorBank || [],
-        stuckPoints || [],
-        learnedCollocations || [],
-        vocabCards || [],
-        foundryExampleOverrides && typeof foundryExampleOverrides === "object"
-          ? foundryExampleOverrides
-          : {},
+        mergedCorpus,
+        mergedErrorBank,
+        mergedStuckPoints,
+        mergedLearnedCollocations,
+        mergedVocabCards,
+        mergedFoundryExampleOverrides,
         syncMeta,
       ],
     );
 
     console.log(
-      `Data saved for user: ${userId}, corpus: ${(corpus || []).length}, errors: ${(errorBank || []).length}, vocab: ${(vocabCards || []).length}`,
+      `Data saved for user: ${userId}, merged corpus: ${mergedCorpus.length}, merged errors: ${mergedErrorBank.length}, merged vocab: ${mergedVocabCards.length}`,
     );
 
     return c.json({ success: true, timestamp: new Date().toISOString() });

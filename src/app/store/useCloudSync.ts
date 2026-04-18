@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import { syncLoad, syncSave } from '../utils/api';
 import {
   mergeByIdNewerTimestamp,
+  mergeVocabCards,
   mergeFoundryExampleOverrides,
   mergeLearnedCollocationIds,
   type FoundryExampleOverridePack,
@@ -125,7 +126,7 @@ export function useCloudSync({
         learnedCollocations: Array.from(
           mergeLearnedCollocationIds(learnedCollocations, data.learnedCollocations)
         ),
-        vocabCards: mergeByIdNewerTimestamp(vocabCards, remoteVocab).map(c => normalizeVocabCard(c)),
+        vocabCards: mergeVocabCards(vocabCards, remoteVocab).map(c => normalizeVocabCard(c)),
         foundryExampleOverrides: mergeFoundryExampleOverrides(foundryExampleOverrides, remoteFoundry),
       };
     },
@@ -151,7 +152,7 @@ export function useCloudSync({
         mergeLearnedCollocationIds(prev, data.learnedCollocations)
       );
       setVocabCards(prev =>
-        mergeByIdNewerTimestamp(prev, remoteVocab).map(c => normalizeVocabCard(c))
+        mergeVocabCards(prev, remoteVocab).map(c => normalizeVocabCard(c))
       );
       setFoundryExampleOverrides(prev =>
         mergeFoundryExampleOverrides(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   mergeByIdNewerTimestamp,
+  mergeVocabCards,
   mergeLearnedCollocationIds,
   mergeFoundryExampleOverrides,
 } from './syncMerge';
@@ -27,6 +28,72 @@ describe('mergeLearnedCollocationIds', () => {
     const s = new Set(['a']);
     const out = mergeLearnedCollocationIds(s, ['b', 'a']);
     expect([...out].sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('mergeVocabCards', () => {
+  it('keeps fresher review state even when timestamp is older', () => {
+    type TestCard = {
+      id: string;
+      timestamp: string;
+      headword: string;
+      reviewStage: number;
+      lastViewedAt: string | null;
+      nextDueAt: string;
+    };
+    const local: TestCard[] = [{
+      id: 'vc-1',
+      timestamp: '2024-04-10T00:00:00.000Z',
+      headword: 'abode',
+      reviewStage: 1,
+      lastViewedAt: '2024-04-15T00:00:00.000Z',
+      nextDueAt: '2024-04-22T00:00:00.000Z',
+    }];
+    const remote: TestCard[] = [{
+      id: 'vc-1',
+      timestamp: '2024-04-12T00:00:00.000Z',
+      headword: 'abode',
+      reviewStage: 0,
+      lastViewedAt: null,
+      nextDueAt: '2024-04-13T00:00:00.000Z',
+    }];
+    const out = mergeVocabCards<TestCard>(local, remote);
+    expect(out).toHaveLength(1);
+    expect(out[0].reviewStage).toBe(1);
+    expect(out[0].nextDueAt).toBe('2024-04-22T00:00:00.000Z');
+    expect(out[0].lastViewedAt).toBe('2024-04-15T00:00:00.000Z');
+    expect(out[0].timestamp).toBe('2024-04-15T00:00:00.000Z');
+  });
+
+  it('still keeps newer content fields by timestamp', () => {
+    type TestCard = {
+      id: string;
+      timestamp: string;
+      headword: string;
+      reviewStage: number;
+      lastViewedAt: string | null;
+      nextDueAt: string;
+    };
+    const local: TestCard[] = [{
+      id: 'vc-1',
+      timestamp: '2024-04-10T00:00:00.000Z',
+      headword: 'old-word',
+      reviewStage: 1,
+      lastViewedAt: '2024-04-15T00:00:00.000Z',
+      nextDueAt: '2024-04-22T00:00:00.000Z',
+    }];
+    const remote: TestCard[] = [{
+      id: 'vc-1',
+      timestamp: '2024-04-16T00:00:00.000Z',
+      headword: 'new-word',
+      reviewStage: 0,
+      lastViewedAt: null,
+      nextDueAt: '2024-04-13T00:00:00.000Z',
+    }];
+    const out = mergeVocabCards<TestCard>(local, remote);
+    expect(out[0].headword).toBe('new-word');
+    expect(out[0].reviewStage).toBe(1);
+    expect(out[0].nextDueAt).toBe('2024-04-22T00:00:00.000Z');
   });
 });
 

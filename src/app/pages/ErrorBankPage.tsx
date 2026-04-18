@@ -278,6 +278,7 @@ export function ErrorBankPage() {
             normalizeSentenceForCompare(corrected) !== normalizeSentenceForCompare(entry.originalSentence)
           ) {
             if (!cancelled) {
+              store.setErrorBankCorrectedSentence(entry.id, corrected);
               setBackfilledCorrections(prev => ({ ...prev, [entry.id]: corrected }));
               setBackfillStatus(prev => ({ ...prev, [entry.id]: 'ready' }));
             }
@@ -296,7 +297,7 @@ export function ErrorBankPage() {
     return () => {
       cancelled = true;
     };
-  }, [filtered]);
+  }, [filtered, store]);
 
   const unresolvedCount = store.errorBank.filter(e => !e.resolved).length;
   const resolvedCount = store.errorBank.filter(e => e.resolved).length;
