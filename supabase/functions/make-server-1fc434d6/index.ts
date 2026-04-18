@@ -39,21 +39,46 @@ async function enforceRateLimit(
   return { ok: true };
 }
 
-function getAllowedOrigins(): Set<string> {
+type AllowedOriginsConfig = {
+  exact: Set<string>;
+  wildcardSuffixes: string[];
+};
+
+function getAllowedOrigins(): AllowedOriginsConfig {
   const raw = Deno.env.get("CORS_ALLOW_ORIGINS") || "";
   const list = raw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
   if (list.length === 0) {
-    return new Set([
-      "http://localhost:5173",
-      "http://127.0.0.1:5173",
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-    ]);
+    return {
+      exact: new Set([
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+      ]),
+      wildcardSuffixes: [],
+    };
   }
-  return new Set(list);
+  const exact = new Set<string>();
+  const wildcardSuffixes: string[] = [];
+  for (const item of list) {
+    if (item.includes("*.")) {
+      try {
+        const url = new URL(item);
+        const wildcardHost = url.hostname.replace("*.", "");
+        if (wildcardHost) {
+          wildcardSuffixes.push(`${url.protocol}//${wildcardHost}`);
+        }
+      } catch {
+        // ignore invalid wildcard origin entries
+      }
+      continue;
+    }
+    exact.add(item);
+  }
+  return { exact, wildcardSuffixes };
 }
 
 const ALLOWED_ORIGINS = getAllowedOrigins();
@@ -64,6 +89,20 @@ function isLocalhostOrigin(origin: string): boolean {
     const u = new URL(origin);
     if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") return false;
     return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isWildcardAllowedOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    const originBase = `${url.protocol}//${url.hostname}`;
+    return ALLOWED_ORIGINS.wildcardSuffixes.some((allowedBase) =>
+      originBase === allowedBase || originBase.endsWith(`.${allowedBase.split("://")[1]}`)
+        ? allowedBase.startsWith(`${url.protocol}//`)
+        : false
+    );
   } catch {
     return false;
   }
@@ -263,7 +302,8 @@ app.use(
   cors({
     origin: (origin) => {
       if (!origin) return "";
-      if (ALLOWED_ORIGINS.has(origin)) return origin;
+      if (ALLOWED_ORIGINS.exact.has(origin)) return origin;
+      if (isWildcardAllowedOrigin(origin)) return origin;
       if (isLocalhostOrigin(origin)) return origin;
       return "";
     },
