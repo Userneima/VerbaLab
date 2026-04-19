@@ -31,5 +31,36 @@ describe('useAppStore integration', () => {
     expect(result.current.corpus).toHaveLength(1);
     expect(result.current.corpus[0].tags.sort()).toEqual(['do', 'well']);
   });
-});
 
+  it('persists corrected sentence updates into error bank state', () => {
+    const { result } = renderHook(() => useAppStore(null));
+
+    act(() => {
+      result.current.clearAll();
+      result.current.addToErrorBank({
+        verbId: 'v1',
+        verb: 'make',
+        collocationId: 'c1',
+        collocation: 'make progress',
+        originalSentence: 'I make a progress every day.',
+        correctedSentence: undefined,
+        errorTypes: ['article'],
+        errorCategory: 'grammar',
+        diagnosis: '1. progress 前不需要冠词。',
+        hint: '去掉 a。',
+        grammarPoints: ['冠词'],
+      });
+    });
+
+    const errorId = result.current.errorBank[0]?.id;
+    expect(errorId).toBeTruthy();
+
+    act(() => {
+      result.current.setErrorBankCorrectedSentence(errorId!, 'I make progress every day.');
+    });
+
+    expect(result.current.errorBank).toHaveLength(1);
+    expect(result.current.errorBank[0].id).toBe(errorId);
+    expect(result.current.errorBank[0].correctedSentence).toBe('I make progress every day.');
+  });
+});

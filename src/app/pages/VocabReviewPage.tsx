@@ -125,7 +125,7 @@ function buildSections(cards: VocabCard[], mode: DisplayMode): Array<{ id: strin
 export function VocabReviewPage() {
   const store = useStore();
   const [q, setQ] = useState('');
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('newest');
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('due');
 
   const cards = useMemo(() => {
     let list = [...store.vocabCards];
