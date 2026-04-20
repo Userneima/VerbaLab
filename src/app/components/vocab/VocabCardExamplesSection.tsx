@@ -171,6 +171,7 @@ export function VocabCardExamplesSection({
                 (!item.topic?.trim() && !item.questionSnapshot?.trim()));
             const isOriginalDailyWordLabRow = item.part === 0 && item.topic === '原词日常';
             const isReviewTargetItem = reviewTargetItemId === item.id;
+            const isReviewLockedTarget = isDue && !anyReproPassed && isReviewTargetItem;
             const showHeaderMeta = open && item.collocationsUsed.length > 0;
             const headerBadgeClassName = isColloquialWordLabRow
               ? 'text-[10px] font-medium bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full shrink-0'
@@ -236,7 +237,7 @@ export function VocabCardExamplesSection({
                 </button>
                 {open ? (
                   <div className="px-3 pb-3 pt-0 space-y-2 border-t border-gray-100">
-                    {isDue && !anyReproPassed && isReviewTargetItem ? (
+                    {isReviewLockedTarget ? (
                       <div className="pt-3">
                         <VocabReproducePanel
                           key={item.id}
@@ -248,12 +249,12 @@ export function VocabCardExamplesSection({
                         />
                       </div>
                     ) : null}
-                    {isDue && !anyReproPassed && isReviewTargetItem ? (
+                    {isReviewLockedTarget ? (
                       <p className="text-[11px] text-violet-600 leading-relaxed">
                         完成当前复习句子的复原后即可查看例句；任一条目通过即可解锁全部例句。
                       </p>
                     ) : null}
-                    {!isDue || anyReproPassed ? (
+                    {!isReviewLockedTarget ? (
                       <div className="pt-3 space-y-2">
                         {item.chinese ? (
                           <button
