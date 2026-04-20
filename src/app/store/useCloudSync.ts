@@ -12,7 +12,7 @@ import type {
   ErrorBankEntry,
   StuckPointEntry,
   VocabCard,
-} from './useStore';
+} from './types';
 
 type SyncStatus = 'idle' | 'saving' | 'loading' | 'success' | 'error';
 
