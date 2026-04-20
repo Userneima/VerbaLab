@@ -8,7 +8,7 @@ interface AuthState {
   session: Session | null;
   loading: boolean;
   error: string | null;
-  signUp: (email: string, password: string, name: string) => Promise<boolean>;
+  signUp: (email: string, password: string, name: string, inviteCode: string) => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   getAccessToken: () => string | null;
@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string, name: string): Promise<boolean> => {
+  const signUp = useCallback(async (email: string, password: string, name: string, inviteCode: string): Promise<boolean> => {
     setError(null);
     try {
       // Call our server signup route (uses service role key to auto-confirm email)
@@ -52,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           apikey: publicAnonKey,
           'Authorization': `Bearer ${publicAnonKey}`,
         },
-        body: JSON.stringify({ email, password, name }),
+        body: JSON.stringify({ email, password, name, inviteCode }),
       });
 
       const data = await resp.json();

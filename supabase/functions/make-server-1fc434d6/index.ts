@@ -157,6 +157,47 @@ async function requireAuth(c: any): Promise<
   return { ok: true, userId };
 }
 
+const INVITE_INVALID_ERROR = "邀请码无效或已使用";
+
+function normalizeInviteCode(value: unknown): string {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+async function findAvailableInvite(code: string): Promise<{ id: string; code: string } | null> {
+  const { data, error } = await supabaseAdmin
+    .from("invites")
+    .select("id, code")
+    .eq("code", code)
+    .is("used_at", null)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+async function consumeInvite(inviteId: string, userId: string): Promise<boolean> {
+  const usedAt = new Date().toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("invites")
+    .update({ used_at: usedAt, used_by: userId })
+    .eq("id", inviteId)
+    .is("used_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw error;
+  return !!data?.id;
+}
+
+async function cleanupCreatedSignupUser(userId: string, email: string, reason: string) {
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+  if (error) {
+    console.error(`Failed to clean up signup user ${userId} (${email}) after ${reason}: ${error.message}`);
+    await captureServerError(`signup_cleanup:${reason}`, error);
+    throw error;
+  }
+}
+
 function mergeByIdNewerTimestamp<T extends { id: string; timestamp?: string }>(
   local: T[] | undefined,
   remote: T[] | undefined,
@@ -382,15 +423,25 @@ app.post("/make-server-1fc434d6/auth/signup", async (c) => {
       return c.json({ error: "Too many signup attempts from this IP", retryAfterSec: ipRl.retryAfterSec }, 429);
     }
 
-    const { email, password, name } = await c.req.json();
+    const { email, password, name, inviteCode: rawInviteCode } = await c.req.json();
+    const inviteCode = normalizeInviteCode(rawInviteCode);
 
-    if (!email || !password) {
-      return c.json({ error: "email and password are required" }, 400);
+    if (!email || !password || !inviteCode) {
+      return c.json({ error: "email, password, and inviteCode are required" }, 400);
+    }
+
+    if (String(password).length < 6) {
+      return c.json({ error: "Password should be at least 6 characters" }, 400);
     }
 
     const emailRl = await enforceRateLimit(`signup:email:${String(email).toLowerCase()}`, 3, 60 * 60 * 1000);
     if (!emailRl.ok) {
       return c.json({ error: "Too many signup attempts for this email", retryAfterSec: emailRl.retryAfterSec }, 429);
+    }
+
+    const invite = await findAvailableInvite(inviteCode);
+    if (!invite) {
+      return c.json({ error: INVITE_INVALID_ERROR }, 400);
     }
 
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
@@ -405,9 +456,32 @@ app.post("/make-server-1fc434d6/auth/signup", async (c) => {
       return c.json({ error: error.message }, 400);
     }
 
-    console.log(`User created: ${data.user?.id} (${email})`);
+    const userId = data.user?.id;
+    if (!userId) {
+      await captureServerError("signup_missing_user_id", `Missing user id for ${email}`);
+      return c.json({ error: "Signup failed: missing user id" }, 500);
+    }
+
+    try {
+      const consumed = await consumeInvite(invite.id, userId);
+      if (!consumed) {
+        await cleanupCreatedSignupUser(userId, email, "invite_conflict");
+        return c.json({ error: INVITE_INVALID_ERROR }, 400);
+      }
+    } catch (consumeErr) {
+      await captureServerError("signup_consume_invite", consumeErr);
+      try {
+        await cleanupCreatedSignupUser(userId, email, "invite_consume_error");
+      } catch {
+        return c.json({ error: "Signup failed during invite verification cleanup" }, 500);
+      }
+      return c.json({ error: "Signup failed during invite verification" }, 500);
+    }
+
+    console.log(`User created with invite: ${userId} (${email})`);
     return c.json({ success: true, userId: data.user?.id });
   } catch (err) {
+    await captureServerError("signup_route", err);
     console.log(`Error in signup: ${err}`);
     return c.json({ error: `Signup failed: ${err}` }, 500);
   }

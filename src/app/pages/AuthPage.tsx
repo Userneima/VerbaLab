@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../store/AuthContext';
-import { Eye, EyeOff, Loader2, Mail, Lock, User } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, Lock, Ticket, User } from 'lucide-react';
 
 export function AuthPage() {
   const { signIn, signUp, error } = useAuth();
@@ -8,6 +8,7 @@ export function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -23,7 +24,12 @@ export function AuthPage() {
         setSubmitting(false);
         return;
       }
-      const ok = await signUp(email, password, name);
+      if (!inviteCode.trim()) {
+        setLocalError('请输入邀请码');
+        setSubmitting(false);
+        return;
+      }
+      const ok = await signUp(email, password, name, inviteCode.trim());
       if (!ok) setSubmitting(false);
     } else {
       const ok = await signIn(email, password);
@@ -67,7 +73,7 @@ export function AuthPage() {
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              注册
+              邀请码注册
             </button>
           </div>
 
@@ -82,6 +88,22 @@ export function AuthPage() {
                     value={name}
                     onChange={e => setName(e.target.value)}
                     placeholder="输入你的昵称"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                  />
+                </div>
+              </div>
+            )}
+
+            {mode === 'signup' && (
+              <div>
+                <label className="block text-slate-300 text-sm mb-1.5">邀请码</label>
+                <div className="relative">
+                  <Ticket size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    value={inviteCode}
+                    onChange={e => setInviteCode(e.target.value.toUpperCase())}
+                    placeholder="输入邀请码"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
                   />
                 </div>
@@ -134,7 +156,7 @@ export function AuthPage() {
 
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || (mode === 'signup' && !inviteCode.trim())}
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {submitting ? (
