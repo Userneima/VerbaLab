@@ -21,6 +21,41 @@ export function tokenizeSentenceToTiles(sentence: string): SentenceTile[] {
     .map((text, i) => ({ id: `r${i}`, text }));
 }
 
+function buildBalancedChunkSizes(wordCount: number, chunkCount: number): number[] {
+  if (wordCount <= 0 || chunkCount <= 0) return [];
+  const base = Math.floor(wordCount / chunkCount);
+  const extra = wordCount % chunkCount;
+  return Array.from({ length: chunkCount }, (_, i) => (i < extra ? base + 1 : base));
+}
+
+function suggestChunkCount(wordCount: number): number {
+  if (wordCount <= 8) return wordCount;
+  return Math.min(7, Math.max(4, Math.round(wordCount / 3)));
+}
+
+/**
+ * 面向较长句子的“短语块”切分，避免逐词切得太碎。
+ * 长句会被均匀分成 4~7 个小块；短句仍保持逐词切分。
+ */
+export function tokenizeSentenceToChunkedTiles(sentence: string): SentenceTile[] {
+  const words = sentence.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 8) {
+    return words.map((text, i) => ({ id: `r${i}`, text }));
+  }
+
+  const chunkSizes = buildBalancedChunkSizes(words.length, suggestChunkCount(words.length));
+  const tiles: SentenceTile[] = [];
+  let cursor = 0;
+
+  chunkSizes.forEach((size, index) => {
+    const chunk = words.slice(cursor, cursor + size).join(' ').trim();
+    if (chunk) tiles.push({ id: `r${index}`, text: chunk });
+    cursor += size;
+  });
+
+  return tiles;
+}
+
 function wordKey(w: string): string {
   return w.replace(/[^a-zA-Z0-9']/g, '').toLowerCase();
 }
@@ -82,6 +117,10 @@ export function buildShuffledTilePool(referenceSentence: string, distractorCount
   const dWords = pickDistractorWords(referenceSentence, distractorCount);
   const distractorTiles: SentenceTile[] = dWords.map((text, i) => ({ id: `d${i}`, text }));
   return shuffle([...refTiles, ...distractorTiles]);
+}
+
+export function buildShuffledChunkTilePool(referenceSentence: string): SentenceTile[] {
+  return shuffle(tokenizeSentenceToChunkedTiles(referenceSentence));
 }
 
 export function verifyReconstructedSentence(selected: SentenceTile[], referenceSentence: string): boolean {
