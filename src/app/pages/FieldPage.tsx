@@ -537,6 +537,19 @@ export function FieldPage() {
                     </p>
 
                     <div className="mt-3">
+                      <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-emerald-800">
+                        <span>完成进度</span>
+                        <span>{selectedChunkCount} / {totalChunkCount}</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/80">
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${totalChunkCount === 0 ? 0 : (selectedChunkCount / totalChunkCount) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
                       <div className="mb-1.5 flex items-center justify-between gap-2">
                         <div className="text-[11px] font-semibold text-gray-600">你的英文顺序</div>
                         <div className="text-[11px] text-gray-500">{selectedChunkCount} / {totalChunkCount} 块</div>
@@ -560,6 +573,15 @@ export function FieldPage() {
                               </button>
                             ))
                           )}
+                          {remainingChunkCount > 0 &&
+                            Array.from({ length: remainingChunkCount }).map((_, index) => (
+                              <div
+                                key={`placeholder-${index}`}
+                                className="inline-flex min-h-[42px] items-center rounded-lg border border-dashed border-emerald-200 bg-emerald-50/60 px-3 py-2 text-[12px] text-emerald-400"
+                              >
+                                待选 {selectedChunkCount + index + 1}
+                              </div>
+                            ))}
                         </div>
                       </div>
                     </div>
