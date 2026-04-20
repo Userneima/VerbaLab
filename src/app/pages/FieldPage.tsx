@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Zap, AlertTriangle, Send, RefreshCw, Loader2, HelpCircle, X, ChevronRight, CheckCircle2, MessageSquare, Mic, MicOff } from 'lucide-react';
 import { IELTS_QUESTIONS } from '../data/verbData';
 import { getStuckSuggestion } from '../utils/grammarCheck';
@@ -6,6 +6,14 @@ import { VERBS } from '../data/verbData';
 import { useStore } from '../store/StoreContext';
 import { useSpeechRecognition } from '../utils/useSpeechRecognition';
 import { aiEvaluateAnswer } from '../utils/api';
+import { buildFieldDifficultyAssist } from '../utils/fieldDifficultyAssist';
+import {
+  type SentenceTile,
+  buildShuffledTilePool,
+  tokenizeSentenceToTiles,
+  verifyReconstructedSentence,
+} from '../utils/sentenceTileBank';
+import { normalizeForMatch } from '../utils/reviewGate';
 
 type FieldState = 'answering' | 'stuck' | 'evaluating' | 'done';
 
@@ -59,7 +67,37 @@ export function FieldPage() {
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [usedVoiceThisRound, setUsedVoiceThisRound] = useState(false);
   const [corpusPanelOpen, setCorpusPanelOpen] = useState(false);
+  const [difficultyAssistLevel, setDifficultyAssistLevel] = useState<0 | 1 | 2 | 3>(0);
+  const [fieldTilePool, setFieldTilePool] = useState<SentenceTile[]>([]);
+  const [fieldTileSelected, setFieldTileSelected] = useState<SentenceTile[]>([]);
+  const [fieldTileError, setFieldTileError] = useState<string | null>(null);
+  const [fieldTileDone, setFieldTileDone] = useState(false);
+  const [fieldAssistError, setFieldAssistError] = useState<string | null>(null);
   const answerInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const difficultyAssist = useMemo(() => buildFieldDifficultyAssist(question), [question]);
+  const difficultyRefTiles = useMemo(
+    () => tokenizeSentenceToTiles(difficultyAssist.keySentence),
+    [difficultyAssist.keySentence]
+  );
+  const difficultyDistractorCount = useMemo(() => {
+    const n = difficultyRefTiles.length;
+    return Math.min(6, Math.max(3, Math.floor(n / 2) + 2));
+  }, [difficultyRefTiles.length]);
+
+  useEffect(() => {
+    if (difficultyAssistLevel !== 3 || !difficultyAssist.keySentence) {
+      setFieldTilePool([]);
+      setFieldTileSelected([]);
+      setFieldTileError(null);
+      setFieldTileDone(false);
+      return;
+    }
+    setFieldTilePool(buildShuffledTilePool(difficultyAssist.keySentence, difficultyDistractorCount));
+    setFieldTileSelected([]);
+    setFieldTileError(null);
+    setFieldTileDone(false);
+  }, [difficultyAssist.keySentence, difficultyAssistLevel, difficultyDistractorCount]);
 
   // Azure Speech recognition
   const speech = useSpeechRecognition();
@@ -82,12 +120,69 @@ export function FieldPage() {
     setEvaluation(null);
     setUsedVoiceThisRound(false);
     setCorpusPanelOpen(false);
+    setDifficultyAssistLevel(0);
+    setFieldTilePool([]);
+    setFieldTileSelected([]);
+    setFieldTileError(null);
+    setFieldTileDone(false);
+    setFieldAssistError(null);
     if (speech.isListening) speech.stopListening();
   }, [speech]);
+
+  const handleLowerDifficulty = useCallback(() => {
+    setFieldAssistError(null);
+    setDifficultyAssistLevel(prev =>
+      prev === 0 ? 1 : prev === 1 ? 2 : prev === 2 ? 3 : 3
+    );
+  }, []);
+
+  const handleResetDifficultyAssist = useCallback(() => {
+    setDifficultyAssistLevel(0);
+    setFieldTilePool([]);
+    setFieldTileSelected([]);
+    setFieldTileError(null);
+    setFieldTileDone(false);
+    setFieldAssistError(null);
+  }, []);
+
+  const handleMoveTileToAnswer = useCallback((tile: SentenceTile) => {
+    setFieldTileError(null);
+    setFieldTilePool(prev => prev.filter(t => t.id !== tile.id));
+    setFieldTileSelected(prev => [...prev, tile]);
+  }, []);
+
+  const handleMoveTileToPool = useCallback((tile: SentenceTile) => {
+    setFieldTileError(null);
+    setFieldTileSelected(prev => prev.filter(t => t.id !== tile.id));
+    setFieldTilePool(prev => [...prev, tile]);
+  }, []);
+
+  const handleCheckFieldTiles = useCallback(() => {
+    setFieldTileError(null);
+    if (fieldTileSelected.length !== difficultyRefTiles.length) {
+      setFieldTileError(`请先排满 ${difficultyRefTiles.length} 个词块（当前 ${fieldTileSelected.length} 个）。`);
+      return;
+    }
+    if (!verifyReconstructedSentence(fieldTileSelected, difficultyAssist.keySentence)) {
+      setFieldTileError('顺序还不对，点击已选词块可放回下方重排。');
+      return;
+    }
+    setFieldTileDone(true);
+    setFieldAssistError(null);
+    setAnswer(prev => {
+      const current = prev.trim();
+      if (!current) return difficultyAssist.keySentence;
+      if (normalizeForMatch(current).includes(normalizeForMatch(difficultyAssist.keySentence))) {
+        return prev;
+      }
+      return `${current} ${difficultyAssist.keySentence}`;
+    });
+  }, [difficultyAssist.keySentence, difficultyRefTiles.length, fieldTileSelected]);
 
   const appendFromCorpus = useCallback((userSentence: string) => {
     const tail = userSentence.trim();
     if (!tail) return;
+    setFieldAssistError(null);
     setAnswer(prev => {
       const p = prev.trimEnd();
       if (!p) return tail;
@@ -126,6 +221,16 @@ export function FieldPage() {
 
   const handleSubmitAnswer = useCallback(async () => {
     if (!answer.trim()) return;
+    if (difficultyAssistLevel === 3 && fieldTileDone) {
+      const normalizedAnswer = normalizeForMatch(answer);
+      const normalizedKeySentence = normalizeForMatch(difficultyAssist.keySentence);
+      if (normalizedAnswer === normalizedKeySentence) {
+        setFieldAssistError('先在关键句基础上再补一句你自己的展开，再提交评测。');
+        answerInputRef.current?.focus();
+        return;
+      }
+    }
+    setFieldAssistError(null);
     setFieldState('evaluating');
 
     try {
@@ -138,11 +243,12 @@ export function FieldPage() {
       setEvaluation(result);
       setFieldState('done');
     }
-  }, [answer, question]);
+  }, [answer, difficultyAssist.keySentence, difficultyAssistLevel, fieldTileDone, question]);
 
   const insertSpeechIntoAnswer = useCallback((text: string) => {
     const spoken = text?.trim();
     if (!spoken) return;
+    setFieldAssistError(null);
     const el = answerInputRef.current;
     const active = typeof document !== 'undefined' && el && document.activeElement === el;
     if (!active || !el) {
@@ -191,6 +297,13 @@ export function FieldPage() {
     2: 'bg-blue-100 text-blue-700',
     3: 'bg-purple-100 text-purple-700',
   };
+
+  const lowerDifficultyLabel =
+    difficultyAssistLevel === 0
+      ? '降低难度'
+      : difficultyAssistLevel === 1 || difficultyAssistLevel === 2
+      ? '再降一级'
+      : '已降到最低';
 
   return (
     <div className="flex flex-col lg:flex-row h-full min-h-0 overflow-hidden">
@@ -320,10 +433,34 @@ export function FieldPage() {
                     <span>目标: 50-150 词</span>
                   </div>
                 </div>
+                {difficultyAssistLevel >= 1 && (
+                  <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] font-semibold tracking-wide text-amber-800">中文答题骨架</div>
+                      <button
+                        type="button"
+                        onClick={handleResetDifficultyAssist}
+                        className="text-[11px] font-medium text-amber-700 hover:text-amber-900"
+                      >
+                        收起辅助
+                      </button>
+                    </div>
+                    <div className="mt-1.5 space-y-1.5">
+                      {difficultyAssist.outlineZh.map((line, index) => (
+                        <p key={`${line}-${index}`} className="text-sm leading-relaxed text-amber-950">
+                          {index + 1}. {line}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <textarea
                   ref={answerInputRef}
                   value={answer}
-                  onChange={e => setAnswer(e.target.value)}
+                  onChange={e => {
+                    setFieldAssistError(null);
+                    setAnswer(e.target.value);
+                  }}
                   placeholder="Type your answer here in English... Be natural and use core verbs like make, get, take, keep..."
                   rows={5}
                   disabled={fieldState === 'done' || fieldState === 'evaluating'}
@@ -331,6 +468,127 @@ export function FieldPage() {
                     fieldState === 'done' ? 'bg-gray-50 border-gray-200' : 'border-gray-200 focus:border-amber-400'
                   }`}
                 />
+                {difficultyAssistLevel >= 2 && (
+                  <div className="mt-2 rounded-xl border border-indigo-200 bg-indigo-50/80 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] font-semibold tracking-wide text-indigo-800">英文句首模板</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFieldAssistError(null);
+                          setDifficultyAssistLevel(1);
+                        }}
+                        className="text-[11px] font-medium text-indigo-700 hover:text-indigo-900"
+                      >
+                        回到上一级
+                      </button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {difficultyAssist.sentenceStems.map((stem, index) => (
+                        <button
+                          key={`${stem}-${index}`}
+                          type="button"
+                          onClick={() => {
+                            setFieldAssistError(null);
+                            setAnswer(prev => {
+                              const base = prev.trim();
+                              if (!base) return stem;
+                              return `${base} ${stem}`;
+                            });
+                            answerInputRef.current?.focus();
+                          }}
+                          className="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
+                        >
+                          {stem}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {difficultyAssistLevel === 3 && (
+                  <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold tracking-wide text-emerald-800">关键句重排</div>
+                        <p className="mt-1 text-xs leading-relaxed text-emerald-900">
+                          还是太难的话，就先把一条关键支撑句拼出来。拼对后会自动放回输入框，但你还需要再补一句自己的展开。
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-emerald-800">
+                          {fieldTileDone ? '已拼对' : `共 ${difficultyRefTiles.length} 块`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFieldAssistError(null);
+                            setDifficultyAssistLevel(2);
+                          }}
+                          className="text-[11px] font-medium text-emerald-700 hover:text-emerald-900"
+                        >
+                          回到上一级
+                        </button>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-emerald-950">
+                      提示中文：{difficultyAssist.keySentenceZh}
+                    </p>
+
+                    <div className="mt-3">
+                      <div className="mb-1.5 text-[11px] font-semibold text-gray-600">你的英文</div>
+                      <div className="min-h-[3rem] rounded-xl border-2 border-dashed border-emerald-200 bg-white px-2 py-2">
+                        <div className="flex flex-wrap gap-2">
+                          {fieldTileSelected.length === 0 ? (
+                            <span className="px-2 py-1 text-[11px] text-gray-400">点击下方词块依次加入</span>
+                          ) : (
+                            fieldTileSelected.map(tile => (
+                              <button
+                                key={tile.id}
+                                type="button"
+                                onClick={() => handleMoveTileToPool(tile)}
+                                className="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-sm font-medium text-white shadow-sm transition-transform active:scale-[0.98] hover:bg-emerald-700"
+                              >
+                                {tile.text}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="mb-1.5 text-[11px] font-semibold text-gray-600">词库</div>
+                      <div className="flex flex-wrap gap-2">
+                        {fieldTilePool.map(tile => (
+                          <button
+                            key={tile.id}
+                            type="button"
+                            onClick={() => handleMoveTileToAnswer(tile)}
+                            className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 transition-transform active:scale-[0.98] hover:bg-slate-100"
+                          >
+                            {tile.text}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {fieldTileError ? <p className="mt-2 text-[11px] text-red-600">{fieldTileError}</p> : null}
+
+                    <button
+                      type="button"
+                      onClick={handleCheckFieldTiles}
+                      disabled={fieldTileDone || fieldTileSelected.length !== difficultyRefTiles.length}
+                      className="mt-3 min-h-[42px] w-full rounded-xl bg-emerald-600 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      检查顺序
+                    </button>
+                  </div>
+                )}
+                {fieldAssistError ? (
+                  <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
+                    {fieldAssistError}
+                  </div>
+                ) : null}
               </div>
 
               {/* Action buttons */}
@@ -350,6 +608,14 @@ export function FieldPage() {
                   >
                     <AlertTriangle size={15} />
                     卡壳了！
+                  </button>
+                  <button
+                    onClick={handleLowerDifficulty}
+                    disabled={difficultyAssistLevel === 3}
+                    className="flex items-center gap-2 px-4 py-2.5 border border-amber-200 text-amber-700 rounded-xl text-sm font-medium hover:bg-amber-50 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    <AlertTriangle size={15} />
+                    {lowerDifficultyLabel}
                   </button>
                   <button
                     onClick={handleToggleRecording}
