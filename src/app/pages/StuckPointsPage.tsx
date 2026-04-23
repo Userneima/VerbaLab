@@ -163,7 +163,9 @@ export function StuckPointsPage() {
     setHelperError(null);
     setSaveMessage(null);
     try {
-      const result = await getStuckSuggestion(thought, corpusForSearch, verbDataForSearch);
+      const result = await getStuckSuggestion(thought, corpusForSearch, verbDataForSearch, {
+        allowFallback: false,
+      });
       setHelperResult(result);
       setCustomSentence(result.examples[0]?.sentence || '');
       const entry = store.addStuckPoint({

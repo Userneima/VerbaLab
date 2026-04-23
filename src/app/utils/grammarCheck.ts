@@ -146,7 +146,8 @@ export interface StuckSuggestionResult extends StuckSuggestResult {}
 export async function getStuckSuggestion(
   chineseThought: string,
   corpus: Array<{ userSentence: string; collocation: string; verb: string }>,
-  verbData: Array<{ verb: string; collocations: Array<{ phrase: string; meaning: string }> }>
+  verbData: Array<{ verb: string; collocations: Array<{ phrase: string; meaning: string }> }>,
+  options?: { allowFallback?: boolean }
 ): Promise<StuckSuggestionResult> {
   try {
     // Flatten verb collocations for the API
@@ -158,15 +159,20 @@ export async function getStuckSuggestion(
     return {
       type: result.type,
       suggestion: result.suggestion,
+      recommendedExpression: result.recommendedExpression,
       guidanceZh: result.guidanceZh,
       examples: result.examples,
     };
   } catch (err) {
     console.error('AI stuck suggestion failed, falling back to local:', err);
+    if (options?.allowFallback === false) {
+      throw err instanceof Error ? err : new Error('Stuck suggestion failed');
+    }
     // Fallback
     return {
       type: 'paraphrase',
       suggestion: `💡 AI 服务暂时不可用，以下是通用建议：\n\n尝试用更简单的词来表达 "${chineseThought}"。\n\n核心技巧：用 GET / MAKE / KEEP / GO 等万能动词替换陌生词汇！`,
+      recommendedExpression: undefined,
       guidanceZh: `先别追求高级词，优先把意思说清。围绕 "${chineseThought}"，先试着用 keep / make / get / feel 这类核心动词造一句简单英文。`,
       examples: [
         {
