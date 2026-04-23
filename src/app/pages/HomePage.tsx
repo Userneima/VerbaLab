@@ -4,23 +4,35 @@ import { BookOpen, FlaskConical, Zap, Target, Library, AlertCircle, LifeBuoy, Ar
 import { useStore } from '../store/StoreContext';
 import { useAuth } from '../store/AuthContext';
 import { VERBS } from '../data/verbData';
-import {
-  buildDailyPracticeSummary,
-  toDayKey,
-  type LearningActivity,
-  type LearningActivityKind,
-} from '../utils/dailyPractice';
-import { TodayPracticePanel } from '../components/home/TodayPracticePanel';
+
+type LearningActivity = {
+  id: string;
+  dayKey: string;
+  occurredAt: string;
+  title: string;
+  detail: string;
+  kind: 'corpus' | 'error' | 'stuck' | 'vocabCard' | 'review';
+  path: string;
+};
 
 const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
 
-const ACTIVITY_BADGE_STYLES: Record<LearningActivityKind, string> = {
+const ACTIVITY_BADGE_STYLES: Record<LearningActivity['kind'], string> = {
   corpus: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
   error: 'bg-rose-50 text-rose-700 border border-rose-100',
   stuck: 'bg-amber-50 text-amber-800 border border-amber-100',
   vocabCard: 'bg-violet-50 text-violet-700 border border-violet-100',
   review: 'bg-sky-50 text-sky-700 border border-sky-100',
 };
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function toDayKey(input: string | Date): string {
+  const date = input instanceof Date ? input : new Date(input);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
 
 function fromDayKey(dayKey: string): Date {
   const [year, month, day] = dayKey.split('-').map(Number);
@@ -74,18 +86,67 @@ export function HomePage() {
   const learnedCount = store.stats.totalLearned;
   const progressPercent = Math.min(100, Math.round((learnedCount / totalCollocations) * 100));
 
-  const dailyPractice = useMemo(
-    () =>
-      buildDailyPracticeSummary({
-        corpus: store.corpus,
-        errorBank: store.errorBank,
-        stuckPoints: store.stuckPoints,
-        vocabCards: store.vocabCards,
-      }),
-    [store.corpus, store.errorBank, store.stuckPoints, store.vocabCards],
-  );
+  const learningActivities = useMemo<LearningActivity[]>(() => {
+    const corpusActivities: LearningActivity[] = store.corpus.map((entry) => ({
+      id: `corpus-${entry.id}`,
+      dayKey: toDayKey(entry.timestamp),
+      occurredAt: entry.timestamp,
+      title: `${entry.mode === 'field' ? '实战仓' : '实验室'} · ${entry.collocation}`,
+      detail: entry.userSentence,
+      kind: 'corpus',
+      path: `/corpus?sentence=${encodeURIComponent(entry.id)}`,
+    }));
 
-  const learningActivities = dailyPractice.learningActivities;
+    const errorActivities: LearningActivity[] = store.errorBank.map((entry) => ({
+      id: `error-${entry.id}`,
+      dayKey: toDayKey(entry.timestamp),
+      occurredAt: entry.timestamp,
+      title: `错题 · ${entry.collocation}`,
+      detail: entry.correctedSentence || entry.originalSentence,
+      kind: 'error',
+      path: `/errors?highlight=${encodeURIComponent(entry.id)}`,
+    }));
+
+    const stuckActivities: LearningActivity[] = store.stuckPoints.map((entry) => ({
+      id: `stuck-${entry.id}`,
+      dayKey: toDayKey(entry.timestamp),
+      occurredAt: entry.timestamp,
+      title: `${entry.sourceMode === 'field' ? '实战仓' : '实验室'}卡壳点 · ${entry.contextCollocation || '表达求助'}`,
+      detail: entry.chineseThought,
+      kind: 'stuck',
+      path: '/stuck',
+    }));
+
+    const vocabActivities: LearningActivity[] = store.vocabCards.flatMap((card) => {
+      const created: LearningActivity = {
+        id: `vocab-${card.id}`,
+        dayKey: toDayKey(card.timestamp),
+        occurredAt: card.timestamp,
+        title: `新词卡 · ${card.headword}`,
+        detail: card.sense?.trim() || card.items[0]?.sentence || '已加入词卡仓库',
+        kind: 'vocabCard',
+        path: `/vocab/${card.id}`,
+      };
+
+      const reviewed = card.lastViewedAt
+        ? [{
+            id: `review-${card.id}-${card.lastViewedAt}`,
+            dayKey: toDayKey(card.lastViewedAt),
+            occurredAt: card.lastViewedAt,
+            title: `复习词卡 · ${card.headword}`,
+            detail: `阶段 ${card.reviewStage} · ${card.spokenPracticePhrase || card.headword}`,
+            kind: 'review' as const,
+            path: `/vocab/${card.id}`,
+          }]
+        : [];
+
+      return [created, ...reviewed];
+    });
+
+    return [...corpusActivities, ...errorActivities, ...stuckActivities, ...vocabActivities].sort(
+      (a, b) => b.occurredAt.localeCompare(a.occurredAt),
+    );
+  }, [store.corpus, store.errorBank, store.stuckPoints, store.vocabCards]);
 
   const activitiesByDay = useMemo(() => {
     const grouped = new Map<string, LearningActivity[]>();
@@ -188,7 +249,7 @@ export function HomePage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold mb-1">{userName}，欢迎回来 👋</h1>
-              <p className="text-slate-400 text-sm sm:text-base">今天先走完一条雅思练习主线：热身一句、开口一题、清掉复习。</p>
+              <p className="text-slate-400 text-sm sm:text-base">继续你的英语输出训练，把学到的表达慢慢变成自己会说的话。</p>
             </div>
             <div className="flex items-center gap-2 bg-slate-800 px-4 py-2 rounded-xl shrink-0 self-start sm:self-auto">
               <Flame size={16} className="text-orange-400" />
@@ -218,8 +279,6 @@ export function HomePage() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-safe sm:pb-6 space-y-6">
-        <TodayPracticePanel userName={userName} summary={dailyPractice} onNavigate={navigate} />
-
         {/* Stats row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {[
@@ -278,54 +337,11 @@ export function HomePage() {
           ))}
         </div>
 
-        {dailyPractice.todayActivityCount > 0 && (
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
-              <div>
-                <h2 className="text-gray-800 font-semibold">今日沉淀</h2>
-                <p className="text-sm text-gray-500 mt-1">今天已经留下 {dailyPractice.todayActivityCount} 条学习记录，继续练会自动沉淀到这里。</p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {learningActivities
-                .filter((activity) => activity.dayKey === todayKey)
-                .slice(0, 4)
-                .map((activity) => (
-                  <button
-                    key={activity.id}
-                    type="button"
-                    onClick={() => navigate(activity.path)}
-                    className="w-full text-left rounded-xl border border-gray-100 bg-slate-50/70 px-3 py-3 hover:border-violet-200 hover:bg-violet-50/50 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 mb-1">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${ACTIVITY_BADGE_STYLES[activity.kind]}`}>
-                            {activity.sceneLabel}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {new Date(activity.occurredAt).toLocaleTimeString('zh-CN', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        </div>
-                        <p className="text-sm font-medium text-gray-800">{activity.title}</p>
-                        <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-2">{activity.detail}</p>
-                      </div>
-                      <ArrowRight size={14} className="text-gray-300 shrink-0 mt-1" />
-                    </div>
-                  </button>
-                ))}
-            </div>
-          </div>
-        )}
-
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
             <div>
               <h2 className="text-gray-800 font-semibold">学习日历</h2>
-              <p className="text-sm text-gray-500 mt-1">按天回看你练过什么、沉淀了什么，以及哪一天完成了哪些类型的任务。</p>
+              <p className="text-sm text-gray-500 mt-1">按天回看你学过的语料、错题、词卡与复习记录。</p>
             </div>
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">
@@ -508,7 +524,7 @@ export function HomePage() {
 
         {/* Module cards */}
         <div>
-          <h2 className="text-gray-800 font-semibold mb-3">练习工具箱</h2>
+          <h2 className="text-gray-800 font-semibold mb-3">学习模块</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {modules.map(mod => {
               const Icon = mod.icon;
