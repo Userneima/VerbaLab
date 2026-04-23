@@ -1,4 +1,4 @@
-import { aiGrammarCheck, aiStuckSuggest, aiChinglishCheck } from './api';
+import { aiGrammarCheck, aiStuckSuggest, aiChinglishCheck, type StuckSuggestResult } from './api';
 
 export interface GrammarError {
   type: string;
@@ -141,11 +141,13 @@ export async function checkChinglish(sentence: string, collocation: string): Pro
   }
 }
 
+export interface StuckSuggestionResult extends StuckSuggestResult {}
+
 export async function getStuckSuggestion(
   chineseThought: string,
   corpus: Array<{ userSentence: string; collocation: string; verb: string }>,
   verbData: Array<{ verb: string; collocations: Array<{ phrase: string; meaning: string }> }>
-): Promise<{ suggestion: string; type: 'corpus' | 'verb' | 'paraphrase' }> {
+): Promise<StuckSuggestionResult> {
   try {
     // Flatten verb collocations for the API
     const flatCollocations = verbData.flatMap(v =>
@@ -156,13 +158,28 @@ export async function getStuckSuggestion(
     return {
       type: result.type,
       suggestion: result.suggestion,
+      guidanceZh: result.guidanceZh,
+      examples: result.examples,
     };
   } catch (err) {
     console.error('AI stuck suggestion failed, falling back to local:', err);
     // Fallback
     return {
       type: 'paraphrase',
-      suggestion: `💡 AI 服务暂时不可用，以下是通用建议：\n\n尝试用更简单的词来表达 "${chineseThought}"。\n\n核心技巧：用 GET / MAKE / KEEP / GO 等万能动词替换陌生词汇！\n例如：\n"坚持不懈" → "keep going / never stop trying"\n"灵光一闪" → "come up with an idea"\n"进退两难" → "feel stuck between two choices"`,
+      suggestion: `💡 AI 服务暂时不可用，以下是通用建议：\n\n尝试用更简单的词来表达 "${chineseThought}"。\n\n核心技巧：用 GET / MAKE / KEEP / GO 等万能动词替换陌生词汇！`,
+      guidanceZh: `先别追求高级词，优先把意思说清。围绕 "${chineseThought}"，先试着用 keep / make / get / feel 这类核心动词造一句简单英文。`,
+      examples: [
+        {
+          sentence: 'I just want to say it in a simpler way.',
+          chinese: '我只是想用一种更简单的方式把它说出来。',
+          noteZh: '先把意思说清，再慢慢优化表达。',
+        },
+        {
+          sentence: 'I am trying to find a natural way to express this idea.',
+          chinese: '我在试着找一种自然的方式来表达这个想法。',
+          noteZh: '适合不知道具体短语时的过渡表达。',
+        },
+      ],
     };
   }
 }

@@ -2,6 +2,9 @@ import { useState, useMemo, type ReactNode } from 'react';
 import { LifeBuoy, Search, Filter, CheckCircle2, MessageSquare, Sparkles } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { getStuckPointDisplay } from '../utils/stuckPointDisplay';
+import { getStuckSuggestion, type StuckSuggestionResult } from '../utils/grammarCheck';
+import { VERBS } from '../data/verbData';
+import { ExpressionHelperPanel } from '../components/stuck/ExpressionHelperPanel';
 
 type FilterStatus = 'all' | 'unresolved' | 'resolved';
 
@@ -94,6 +97,108 @@ export function StuckPointsPage() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [helperInput, setHelperInput] = useState('');
+  const [helperLoading, setHelperLoading] = useState(false);
+  const [helperError, setHelperError] = useState<string | null>(null);
+  const [helperResult, setHelperResult] = useState<StuckSuggestionResult | null>(null);
+  const [customSentence, setCustomSentence] = useState('');
+  const [savingSentence, setSavingSentence] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [latestHelperEntryId, setLatestHelperEntryId] = useState<string | null>(null);
+
+  const corpusForSearch = useMemo(
+    () => store.corpus.map((entry) => ({
+      userSentence: entry.userSentence,
+      collocation: entry.collocation,
+      verb: entry.verb,
+    })),
+    [store.corpus],
+  );
+
+  const verbDataForSearch = useMemo(
+    () =>
+      VERBS.map((verb) => ({
+        verb: verb.verb,
+        collocations: verb.collocations.map((collocation) => ({
+          phrase: collocation.phrase,
+          meaning: collocation.meaning,
+        })),
+      })),
+    [],
+  );
+
+  const saveSentenceToCorpus = (sentence: string, translation?: string) => {
+    const thought = helperInput.trim();
+    const trimmedSentence = sentence.trim();
+    if (!thought || !trimmedSentence) return;
+    const collocationId = `free-expression:${encodeURIComponent(thought.toLowerCase())}`;
+    const savedEntry = store.addToCorpus({
+      verbId: 'free-expression',
+      verb: 'free expression',
+      collocationId,
+      collocation: thought,
+      userSentence: trimmedSentence,
+      isCorrect: true,
+      mode: 'stuck',
+      tags: ['free-expression', 'stuck-helper'],
+      nativeThinking: thought,
+    });
+    if (translation?.trim()) {
+      store.setCorpusEntryZhTranslation(savedEntry.id, translation.trim());
+    } else {
+      store.setCorpusEntryZhTranslation(savedEntry.id, thought);
+    }
+    if (latestHelperEntryId) {
+      store.resolveStuck(latestHelperEntryId);
+    }
+    setSaveMessage('已收进语料库');
+  };
+
+  const handleGenerate = async () => {
+    const thought = helperInput.trim();
+    if (!thought) return;
+    setHelperLoading(true);
+    setHelperError(null);
+    setSaveMessage(null);
+    try {
+      const result = await getStuckSuggestion(thought, corpusForSearch, verbDataForSearch);
+      setHelperResult(result);
+      setCustomSentence(result.examples[0]?.sentence || '');
+      const entry = store.addStuckPoint({
+        chineseThought: thought,
+        englishAttempt: '',
+        aiSuggestion: result.guidanceZh?.trim() || result.suggestion,
+        sourceMode: 'free',
+      });
+      setLatestHelperEntryId(entry.id);
+    } catch (error) {
+      setHelperError(error instanceof Error ? error.message : '生成表达指导失败');
+    } finally {
+      setHelperLoading(false);
+    }
+  };
+
+  const handleSaveExampleToCorpus = (sentence: string, translation?: string) => {
+    setSavingSentence(sentence);
+    setSaveMessage(null);
+    try {
+      saveSentenceToCorpus(sentence, translation);
+    } finally {
+      setSavingSentence(null);
+    }
+  };
+
+  const handleSaveCustomSentence = () => {
+    const sentence = customSentence.trim();
+    if (!sentence) return;
+    setSavingSentence('__custom__');
+    setSaveMessage(null);
+    try {
+      saveSentenceToCorpus(sentence);
+    } finally {
+      setSavingSentence(null);
+    }
+  };
 
   const filtered = useMemo(() => {
     let result = [...store.stuckPoints];
@@ -132,13 +237,32 @@ export function StuckPointsPage() {
                 )}
               </div>
               <p className="text-gray-400 text-sm mt-0.5">
-                实战仓中点击「卡壳」并输入中文思路后，AI 建议会保存在此，便于回顾与复盘
+                把中文想法丢进来拿表达指导，或回看你之前在练习中留下的卡壳记录
               </p>
             </div>
           </div>
         </div>
 
         <div className="p-4 sm:p-6 pb-safe sm:pb-6 space-y-5">
+          <ExpressionHelperPanel
+            chineseThought={helperInput}
+            onChineseThoughtChange={setHelperInput}
+            loading={helperLoading}
+            error={helperError}
+            result={helperResult}
+            customSentence={customSentence}
+            onCustomSentenceChange={setCustomSentence}
+            onSubmit={handleGenerate}
+            onUseExampleSentence={(sentence) => {
+              setCustomSentence(sentence);
+              setSaveMessage(null);
+            }}
+            onSaveExampleToCorpus={handleSaveExampleToCorpus}
+            onSaveCustomSentence={handleSaveCustomSentence}
+            savingSentence={savingSentence}
+            saveMessage={saveMessage}
+          />
+
           {store.stuckPoints.length === 0 ? (
             <div className="text-center py-16">
               <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -146,7 +270,7 @@ export function StuckPointsPage() {
               </div>
               <h3 className="text-gray-700 font-semibold mb-2">还没有卡壳记录</h3>
               <p className="text-gray-400 text-sm max-w-sm mx-auto">
-                在实战仓练习口语时，遇到说不出口的情况可点击「卡壳」，记录中文想法并获取平替表达
+                你可以直接在上面输入中文想法获取表达指导；在实验室和实战仓里遇到说不出口的情况，也会自动沉淀到这里
               </p>
             </div>
           ) : (

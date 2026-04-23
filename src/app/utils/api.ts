@@ -182,8 +182,47 @@ function parseSyncLoadResult(raw: unknown): SyncLoadResult {
   };
 }
 
+const stuckSuggestExampleSchema = z.object({
+  sentence: z.string().trim().min(1),
+  chinese: z.string().trim().optional(),
+  noteZh: z.string().trim().optional(),
+});
+
+const stuckSuggestSchema = z.object({
+  type: z.enum(['corpus', 'verb', 'paraphrase']).default('paraphrase'),
+  suggestion: z.string().default(''),
+  guidanceZh: z.string().trim().optional(),
+  examples: z.array(stuckSuggestExampleSchema).default([]),
+});
+
+export type StuckSuggestResult = z.infer<typeof stuckSuggestSchema>;
+
+function parseStuckSuggestResult(raw: unknown): StuckSuggestResult {
+  const parsed = stuckSuggestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      type: 'paraphrase',
+      suggestion: '',
+      guidanceZh: undefined,
+      examples: [],
+    };
+  }
+  const value = parsed.data;
+  return {
+    type: value.type,
+    suggestion: value.suggestion.trim(),
+    guidanceZh: value.guidanceZh?.trim() || undefined,
+    examples: value.examples.map((example) => ({
+      sentence: example.sentence.trim(),
+      chinese: example.chinese?.trim() || undefined,
+      noteZh: example.noteZh?.trim() || undefined,
+    })),
+  };
+}
+
 export const __apiTestables = {
   parseSyncLoadResult,
+  parseStuckSuggestResult,
 };
 
 export async function syncSave(
@@ -317,13 +356,14 @@ export async function aiStuckSuggest(
   chineseThought: string,
   corpusSentences: Array<{ userSentence: string; collocation: string; verb: string }>,
   verbCollocations: Array<{ phrase: string; meaning: string }>
-): Promise<{ type: 'corpus' | 'verb' | 'paraphrase'; suggestion: string }> {
+): Promise<StuckSuggestResult> {
   try {
-    return await postAiJson('/ai/stuck-suggest', {
+    const raw = await postAiJson<unknown>('/ai/stuck-suggest', {
       chineseThought,
       corpusSentences,
       verbCollocations,
     });
+    return parseStuckSuggestResult(raw);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Stuck suggestion failed';
     console.error('AI stuck suggest error:', msg);

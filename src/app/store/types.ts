@@ -13,7 +13,7 @@ export interface CorpusEntry {
   collocation: string;
   userSentence: string;
   isCorrect: boolean;
-  mode: 'test' | 'field';
+  mode: 'test' | 'field' | 'stuck';
   tags: string[];
   nativeVersion?: string;
   nativeThinking?: string;
@@ -55,7 +55,7 @@ export interface StuckPointEntry {
   englishAttempt: string;
   aiSuggestion: string;
   resolved: boolean;
-  sourceMode?: 'test' | 'field';
+  sourceMode?: 'test' | 'field' | 'free';
   contextCollocation?: string;
 }
 

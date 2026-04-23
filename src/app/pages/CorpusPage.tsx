@@ -333,7 +333,7 @@ export function CorpusPage() {
                               {entry.collocation}
                             </span>
                             <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-400 bg-white">
-                              {entry.mode === 'test' ? '实验室' : '实战仓'}
+                              {entry.mode === 'test' ? '实验室' : entry.mode === 'field' ? '实战仓' : '表达求助'}
                             </span>
                           </div>
                         </div>

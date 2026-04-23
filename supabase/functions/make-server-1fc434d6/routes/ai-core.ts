@@ -177,7 +177,7 @@ export function registerCoreAiRoutes(app: Hono) {
         (corpusContext || "(empty)") +
         "\n\nAvailable verb collocations:\n" +
         (verbContext || "(none provided)") +
-        "\n\nRespond ONLY with valid JSON (no markdown):\n{\n  \"type\": \"corpus\" | \"verb\" | \"paraphrase\",\n  \"suggestion\": \"Your suggestion in mixed Chinese/English, explaining how to express the idea. Include example sentences. Use emoji for visual clarity.\"\n}\n\nKeep your suggestion concise, practical, and encouraging.";
+        "\n\nRespond ONLY with valid JSON (no markdown):\n{\n  \"type\": \"corpus\" | \"verb\" | \"paraphrase\",\n  \"suggestion\": \"A short mixed Chinese/English summary for quick display. Keep it concise.\",\n  \"guidanceZh\": \"Chinese guidance explaining the most natural way to express the idea and what wording to prioritize.\",\n  \"examples\": [\n    {\n      \"sentence\": \"One natural English sentence\",\n      \"chinese\": \"Natural Chinese translation\",\n      \"noteZh\": \"Why this sentence works or when to use it\"\n    }\n  ]\n}\n\nRules:\n- Always return 2 or 3 example sentences.\n- Example sentences must be natural, everyday usable English.\n- guidanceZh must be concise, practical, and directly usable.\n- suggestion should be a short summary, not a long paragraph.\n- Examples should help the learner either say it directly or adapt it with small edits.\n- Prefer simple, speakable English over fancy vocabulary.";
 
       const result = await callDeepSeek(
         [
@@ -189,13 +189,34 @@ export function registerCoreAiRoutes(app: Hono) {
 
       let parsed;
       try {
-        const jsonMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, result];
-        parsed = JSON.parse(jsonMatch[1].trim());
+        parsed = parseJsonFromModel(result) as Record<string, unknown>;
       } catch {
-        parsed = { type: "paraphrase", suggestion: result };
+        parsed = { type: "paraphrase", suggestion: result, guidanceZh: result, examples: [] };
       }
+      const rawExamples = Array.isArray(parsed.examples) ? parsed.examples : [];
+      const examples = rawExamples
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+          const row = item as Record<string, unknown>;
+          const sentence = String(row.sentence || "").trim();
+          if (!sentence) return null;
+          const chinese = String(row.chinese || "").trim();
+          const noteZh = String(row.noteZh || "").trim();
+          return {
+            sentence,
+            chinese: chinese || undefined,
+            noteZh: noteZh || undefined,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 3);
 
-      return c.json(parsed);
+      return c.json({
+        type: parsed.type === "corpus" || parsed.type === "verb" ? parsed.type : "paraphrase",
+        suggestion: String(parsed.suggestion || parsed.guidanceZh || "").trim(),
+        guidanceZh: String(parsed.guidanceZh || "").trim() || undefined,
+        examples,
+      });
     } catch (err) {
       console.log(`Error in stuck suggestion: ${err}`);
       return c.json({ error: `Stuck suggestion failed: ${err}` }, 500);

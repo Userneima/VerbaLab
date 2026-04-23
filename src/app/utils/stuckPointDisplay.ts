@@ -47,7 +47,13 @@ function looksLikeUserEnglishAttempt(s: string): boolean {
 
 export function getStuckPointDisplay(entry: StuckPointEntry): StuckPointDisplay {
   const fromMode =
-    entry.sourceMode === 'test' ? '实验室' : entry.sourceMode === 'field' ? '实战仓' : undefined;
+    entry.sourceMode === 'test'
+      ? '实验室'
+      : entry.sourceMode === 'field'
+        ? '实战仓'
+        : entry.sourceMode === 'free'
+          ? '自由表达'
+          : undefined;
 
   const fromAi = extractTitleEnglishFromAiSuggestion(entry.aiSuggestion);
   const attempt = entry.englishAttempt?.trim();
