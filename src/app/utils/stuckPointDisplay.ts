@@ -24,6 +24,7 @@ export function extractTitleEnglishFromAiSuggestion(text: string): string | unde
     /(?:推荐|建议说|试试)[:：]\s*['\u2018]([^'\u2019\n]{3,120})['\u2019]/,
     /如[:：]\s*['\u2018]([a-zA-Z][^'\u2019\n]{2,100})['\u2019]/,
     /可以说\s*[「『]([^」』]{3,120})[」』]/,
+    /(?:可以说|可以直接说|推荐说法|推荐表达|英文可以说|更自然的说法|例句)[:：]\s*([A-Za-z][^。\n！？]{3,160})/,
   ];
 
   for (const re of tryPatterns) {
@@ -36,6 +37,22 @@ export function extractTitleEnglishFromAiSuggestion(text: string): string | unde
 
   const quoted = s.match(/['\u2018]([a-zA-Z][a-zA-Z\s,.'-]{4,90})['\u2019]/);
   if (quoted?.[1] && /\s/.test(quoted[1])) return quoted[1].trim();
+
+  const lines = s
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    const normalized = line
+      .replace(/^[-*•\d.\s]+/, '')
+      .replace(/^(例句|表达|推荐说法|推荐表达|可以说|英文可以说)[:：]\s*/u, '')
+      .trim();
+    if (!normalized) continue;
+    if (/[\u4e00-\u9fa5]/.test(normalized)) continue;
+    if (!/[A-Za-z]/.test(normalized)) continue;
+    if (normalized.split(/\s+/).length < 3) continue;
+    return normalized;
+  }
 
   return undefined;
 }
@@ -60,14 +77,9 @@ export function getStuckPointDisplay(entry: StuckPointEntry): StuckPointDisplay 
 
   const colloc = entry.contextCollocation?.trim();
   if (colloc) {
-    const titleEnglish =
-      fromAi ||
-      (attempt && looksLikeUserEnglishAttempt(attempt) && attempt.toLowerCase() !== colloc.toLowerCase()
-        ? attempt
-        : undefined);
     return {
       chinese: entry.chineseThought.trim(),
-      titleEnglish,
+      titleEnglish: fromAi,
       practiceCollocation: colloc,
       sourceLabel: fromMode,
     };
@@ -76,14 +88,9 @@ export function getStuckPointDisplay(entry: StuckPointEntry): StuckPointDisplay 
   const m = entry.chineseThought.match(LEGACY_BRACKET_PREFIX);
   if (m) {
     const practice = m[2].trim();
-    const titleEnglish =
-      fromAi ||
-      (attempt && looksLikeUserEnglishAttempt(attempt) && attempt.toLowerCase() !== practice.toLowerCase()
-        ? attempt
-        : undefined);
     return {
       chinese: m[3].trim(),
-      titleEnglish,
+      titleEnglish: fromAi,
       practiceCollocation: practice,
       sourceLabel: m[1].trim(),
     };
