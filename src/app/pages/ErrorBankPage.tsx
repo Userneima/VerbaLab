@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router';
 import { AlertCircle, Search, CheckCircle2, Filter } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
@@ -17,18 +17,43 @@ const ERROR_CATEGORY_LABELS: Record<ErrorCategory, { label: string }> = {
 };
 
 export function ErrorBankPage() {
+  const store = useStore();
+  const {
+    errorBank,
+    removeErrorBankEntry,
+    reopenError,
+    resolveError,
+    setErrorBankCorrectedSentence,
+  } = store;
   const [searchParams, setSearchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight');
-  const store = useStore();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [filterCategory, setFilterCategory] = useState<ErrorCategory | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [backfilledCorrections, setBackfilledCorrections] = useState<Record<string, string>>({});
   const [backfillStatus, setBackfillStatus] = useState<Record<string, 'loading' | 'ready' | 'missing' | 'error'>>({});
+  const inFlightBackfillsRef = useRef<Set<string>>(new Set());
+  const backfilledCorrectionsRef = useRef(backfilledCorrections);
+  const backfillStatusRef = useRef(backfillStatus);
+  const unmountedRef = useRef(false);
+
+  useEffect(() => {
+    backfilledCorrectionsRef.current = backfilledCorrections;
+  }, [backfilledCorrections]);
+
+  useEffect(() => {
+    backfillStatusRef.current = backfillStatus;
+  }, [backfillStatus]);
+
+  useEffect(() => {
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
-    let result = [...store.errorBank];
+    let result = [...errorBank];
 
     if (search) {
       result = result.filter(
@@ -44,11 +69,11 @@ export function ErrorBankPage() {
     if (filterCategory !== 'all') result = result.filter(e => (e as { errorCategory?: ErrorCategory }).errorCategory === filterCategory);
 
     return result.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  }, [store.errorBank, search, filterStatus, filterCategory]);
+  }, [errorBank, search, filterStatus, filterCategory]);
 
   useEffect(() => {
     if (!highlightId) return;
-    const entry = store.errorBank.find(e => e.id === highlightId);
+    const entry = errorBank.find(e => e.id === highlightId);
     if (!entry) {
       setSearchParams(prev => {
         const p = new URLSearchParams(prev);
@@ -61,7 +86,7 @@ export function ErrorBankPage() {
     setFilterStatus('all');
     setFilterCategory('all');
     setExpandedId(highlightId);
-  }, [highlightId, store.errorBank, setSearchParams]);
+  }, [errorBank, highlightId, setSearchParams]);
 
   useEffect(() => {
     if (!highlightId) return;
@@ -79,65 +104,64 @@ export function ErrorBankPage() {
   }, [highlightId, filtered, setSearchParams]);
 
   useEffect(() => {
-    let cancelled = false;
-    const candidates = filtered.filter(entry => {
+    const candidates = filtered.filter((entry) => {
       const existingCorrection =
-        backfilledCorrections[entry.id]?.trim() ||
+        backfilledCorrectionsRef.current[entry.id]?.trim() ||
         entry.correctedSentence?.trim() ||
         entry.nativeVersion?.trim();
-      return !existingCorrection && !backfillStatus[entry.id];
+      return (
+        !existingCorrection &&
+        !backfillStatusRef.current[entry.id] &&
+        !inFlightBackfillsRef.current.has(entry.id)
+      );
     });
 
     if (candidates.length === 0) return;
-    setBackfillStatus(prev => ({
-      ...prev,
-      ...Object.fromEntries(candidates.map(entry => [entry.id, 'loading' as const])),
-    }));
 
-    void (async () => {
-      for (const entry of candidates) {
-        if (cancelled) return;
+    for (const entry of candidates) {
+      inFlightBackfillsRef.current.add(entry.id);
+      setBackfillStatus((prev) => ({ ...prev, [entry.id]: 'loading' }));
+
+      void (async () => {
         try {
           const result = await aiGrammarCheck(entry.originalSentence, entry.collocation);
           const corrected = result.correctedSentence?.trim();
+          if (unmountedRef.current) return;
+
           if (
             corrected &&
             normalizeSentenceForCompare(corrected) !== normalizeSentenceForCompare(entry.originalSentence)
           ) {
-            if (!cancelled) {
-              store.setErrorBankCorrectedSentence(entry.id, corrected);
-              setBackfilledCorrections(prev => ({ ...prev, [entry.id]: corrected }));
-              setBackfillStatus(prev => ({ ...prev, [entry.id]: 'ready' }));
-            }
-          } else if (!cancelled) {
-            setBackfillStatus(prev => ({ ...prev, [entry.id]: 'missing' }));
+            setErrorBankCorrectedSentence(entry.id, corrected);
+            setBackfilledCorrections((prev) => ({ ...prev, [entry.id]: corrected }));
+            setBackfillStatus((prev) => ({ ...prev, [entry.id]: 'ready' }));
+          } else {
+            setBackfillStatus((prev) => ({ ...prev, [entry.id]: 'missing' }));
           }
         } catch (error) {
           console.error(`Failed to backfill corrected sentence for error entry: ${entry.id}`, error);
-          if (!cancelled) {
-            setBackfillStatus(prev => ({ ...prev, [entry.id]: 'error' }));
+          if (!unmountedRef.current) {
+            setBackfillStatus((prev) => ({ ...prev, [entry.id]: 'error' }));
           }
+        } finally {
+          inFlightBackfillsRef.current.delete(entry.id);
         }
-      }
-    })();
+      })();
+    }
+  }, [filtered, setErrorBankCorrectedSentence]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [filtered, store]);
-
-  const unresolvedCount = store.errorBank.filter(e => !e.resolved).length;
-  const resolvedCount = store.errorBank.filter(e => e.resolved).length;
-  const totalCount = store.errorBank.length;
+  const unresolvedCount = errorBank.filter(e => !e.resolved).length;
+  const resolvedCount = errorBank.filter(e => e.resolved).length;
+  const totalCount = errorBank.length;
 
   const deleteErrorEntry = (entryId: string) => {
     if (!confirm('确定删除这条错误记录？删除后无法恢复。')) return;
-    store.removeErrorBankEntry(entryId);
+    removeErrorBankEntry(entryId);
     setExpandedId(prev => (prev === entryId ? null : prev));
   };
 
   const reopenErrorEntry = (entryId: string) => {
-    store.reopenError(entryId);
+    reopenError(entryId);
   };
 
   return (
@@ -163,7 +187,7 @@ export function ErrorBankPage() {
         </div>
 
         <div className="p-4 sm:p-6 pb-safe sm:pb-6 space-y-5">
-          {store.errorBank.length === 0 ? (
+          {errorBank.length === 0 ? (
             <div className="text-center py-16">
               <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <CheckCircle2 size={28} className="text-green-500" />
@@ -261,10 +285,10 @@ export function ErrorBankPage() {
                         setExpandedId(expandedId === entry.id ? null : entry.id)
                       }
                       onDelete={() => deleteErrorEntry(entry.id)}
-                      onResolve={() => store.resolveError(entry.id)}
+                      onResolve={() => resolveError(entry.id)}
                       onReopen={() => reopenErrorEntry(entry.id)}
                       onSaveCorrectedSentence={(sentence) => {
-                        store.setErrorBankCorrectedSentence(entry.id, sentence);
+                        setErrorBankCorrectedSentence(entry.id, sentence);
                         setBackfilledCorrections(prev => ({ ...prev, [entry.id]: sentence }));
                         setBackfillStatus(prev => ({ ...prev, [entry.id]: 'ready' }));
                       }}
