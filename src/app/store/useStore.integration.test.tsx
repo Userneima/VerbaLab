@@ -63,4 +63,28 @@ describe('useAppStore integration', () => {
     expect(result.current.errorBank[0].id).toBe(errorId);
     expect(result.current.errorBank[0].correctedSentence).toBe('I make progress every day.');
   });
+
+  it('deletes stuck point entries from store state', () => {
+    const { result } = renderHook(() => useAppStore(null));
+
+    act(() => {
+      result.current.clearAll();
+      result.current.addStuckPoint({
+        chineseThought: '我们不是一路人',
+        englishAttempt: '',
+        aiSuggestion: '可以说：we are not on the same path',
+        recommendedExpression: 'be on the same path',
+        sourceMode: 'free',
+      });
+    });
+
+    const stuckId = result.current.stuckPoints[0]?.id;
+    expect(stuckId).toBeTruthy();
+
+    act(() => {
+      result.current.deleteStuckPoint(stuckId!);
+    });
+
+    expect(result.current.stuckPoints).toHaveLength(0);
+  });
 });

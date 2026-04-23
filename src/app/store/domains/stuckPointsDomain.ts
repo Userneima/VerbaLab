@@ -29,8 +29,30 @@ export function useStuckPointsDomain(
     [setStuckPoints],
   );
 
+  const deleteStuckPoint = useCallback(
+    (stuckId: string) => {
+      setStuckPoints((prev) => prev.filter((entry) => entry.id !== stuckId));
+    },
+    [setStuckPoints],
+  );
+
+  const setStuckPointRecommendedExpression = useCallback(
+    (stuckId: string, recommendedExpression: string) => {
+      const trimmed = recommendedExpression.trim();
+      if (!trimmed) return;
+      setStuckPoints((prev) =>
+        prev.map((entry) =>
+          entry.id === stuckId ? { ...entry, recommendedExpression: trimmed } : entry,
+        ),
+      );
+    },
+    [setStuckPoints],
+  );
+
   return {
     addStuckPoint,
     resolveStuck,
+    deleteStuckPoint,
+    setStuckPointRecommendedExpression,
   };
 }

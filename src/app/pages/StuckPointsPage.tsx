@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react';
-import { LifeBuoy, Search, Filter, CheckCircle2, MessageSquare, Sparkles } from 'lucide-react';
+import { LifeBuoy, Search, Filter, CheckCircle2, MessageSquare, Sparkles, Trash2 } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { getStuckPointDisplay } from '../utils/stuckPointDisplay';
 import { getStuckSuggestion, type StuckSuggestionResult } from '../utils/grammarCheck';
@@ -107,6 +107,24 @@ export function StuckPointsPage() {
   const [latestHelperEntryId, setLatestHelperEntryId] = useState<string | null>(null);
   const [backfilledTitleMap, setBackfilledTitleMap] = useState<Record<string, string>>({});
   const [backfillingIds, setBackfillingIds] = useState<Record<string, boolean>>({});
+
+  const handleDeleteStuckPoint = (entryId: string) => {
+    if (!confirm('确定删除这条卡壳记录？删除后无法恢复。')) return;
+    store.deleteStuckPoint(entryId);
+    setExpandedId((prev) => (prev === entryId ? null : prev));
+    setBackfilledTitleMap((prev) => {
+      if (!prev[entryId]) return prev;
+      const next = { ...prev };
+      delete next[entryId];
+      return next;
+    });
+    setBackfillingIds((prev) => {
+      if (!prev[entryId]) return prev;
+      const next = { ...prev };
+      delete next[entryId];
+      return next;
+    });
+  };
 
   const corpusForSearch = useMemo(
     () => store.corpus.map((entry) => ({
@@ -433,7 +451,15 @@ export function StuckPointsPage() {
                             </div>
                             <StuckAiSuggestionBody text={entry.aiSuggestion} />
                           </div>
-                          <div className="flex justify-end">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteStuckPoint(entry.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm font-medium hover:bg-red-100 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                              删除
+                            </button>
                             {!entry.resolved ? (
                               <button
                                 type="button"
