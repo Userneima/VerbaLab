@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react';
-import { LifeBuoy, Search, Filter, CheckCircle2, MessageSquare, Sparkles, Trash2 } from 'lucide-react';
+import { LifeBuoy, Search, Filter, CheckCircle2, MessageSquare, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { getStuckPointDisplay } from '../utils/stuckPointDisplay';
 import { getStuckSuggestion, type StuckSuggestionResult } from '../utils/grammarCheck';
@@ -470,7 +470,14 @@ export function StuckPointsPage() {
                                 标记为已解决
                               </button>
                             ) : (
-                              <span className="text-xs text-emerald-600">已标记为已解决</span>
+                              <button
+                                type="button"
+                                onClick={() => store.reopenStuck(entry.id)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 transition-colors"
+                              >
+                                <RotateCcw size={14} />
+                                恢复为未解决
+                              </button>
                             )}
                           </div>
                         </div>

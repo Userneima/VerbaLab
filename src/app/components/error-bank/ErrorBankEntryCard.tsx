@@ -1,4 +1,5 @@
-import { CheckCircle2, Trash2 } from 'lucide-react';
+import { CheckCircle2, Pencil, RotateCcw, Save, Trash2, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { ErrorBankEntry, ErrorCategory } from '../../store/useStore';
 import {
   analyzeSentenceDiff,
@@ -34,6 +35,8 @@ type ErrorBankEntryCardProps = {
   onToggleExpanded: () => void;
   onDelete: () => void;
   onResolve: () => void;
+  onReopen: () => void;
+  onSaveCorrectedSentence: (sentence: string) => void;
 };
 
 export function ErrorBankEntryCard({
@@ -44,8 +47,17 @@ export function ErrorBankEntryCard({
   onToggleExpanded,
   onDelete,
   onResolve,
+  onReopen,
+  onSaveCorrectedSentence,
 }: ErrorBankEntryCardProps) {
   const cat = entry.errorCategory ?? 'grammar';
+  const [editingCorrection, setEditingCorrection] = useState(false);
+  const [correctedDraft, setCorrectedDraft] = useState(correctedSentence || '');
+
+  useEffect(() => {
+    setCorrectedDraft(correctedSentence || '');
+  }, [correctedSentence]);
+
   const sentenceDiff =
     correctedSentence &&
     normalizeSentenceForCompare(correctedSentence) !==
@@ -53,6 +65,13 @@ export function ErrorBankEntryCard({
       ? analyzeSentenceDiff(entry.originalSentence, correctedSentence)
       : null;
   const diagnosisShown = filterDiagnosisForDisplay(entry.diagnosis);
+
+  const handleSaveCorrection = () => {
+    const trimmed = correctedDraft.trim();
+    if (!trimmed) return;
+    onSaveCorrectedSentence(trimmed);
+    setEditingCorrection(false);
+  };
 
   return (
     <div
@@ -81,27 +100,37 @@ export function ErrorBankEntryCard({
           <div className="flex-1 min-w-0 space-y-2">
             <div className="space-y-1">
               <p className="text-[10px] font-medium tracking-wide text-emerald-700/80">正确句</p>
-              <p
-                className={`leading-relaxed text-pretty whitespace-pre-wrap ${
-                  correctedSentence
-                    ? 'text-[15px] sm:text-[16px] font-medium text-slate-800'
+              {editingCorrection ? (
+                <textarea
+                  value={correctedDraft}
+                  onChange={(e) => setCorrectedDraft(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full min-h-[5.5rem] rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm leading-relaxed text-slate-800 focus:outline-none focus:border-emerald-400"
+                  placeholder="手动整理成一条你认可的正确句"
+                />
+              ) : (
+                <p
+                  className={`leading-relaxed text-pretty whitespace-pre-wrap ${
+                    correctedSentence
+                      ? 'text-[15px] sm:text-[16px] font-medium text-slate-800'
+                      : correctionStatus === 'loading'
+                        ? 'text-sm text-slate-400'
+                        : correctionStatus === 'error'
+                          ? 'text-sm text-amber-600'
+                          : 'text-sm text-slate-500'
+                  }`}
+                >
+                  {correctedSentence
+                    ? sentenceDiff
+                      ? renderSentenceWithDiff(sentenceDiff.correctedTokens, 'correct')
+                      : correctedSentence
                     : correctionStatus === 'loading'
-                      ? 'text-sm text-slate-400'
+                      ? '正在补全正确句…'
                       : correctionStatus === 'error'
-                        ? 'text-sm text-amber-600'
-                        : 'text-sm text-slate-500'
-                }`}
-              >
-                {correctedSentence
-                  ? sentenceDiff
-                    ? renderSentenceWithDiff(sentenceDiff.correctedTokens, 'correct')
-                    : correctedSentence
-                  : correctionStatus === 'loading'
-                    ? '正在补全正确句…'
-                    : correctionStatus === 'error'
-                      ? '正确句补全失败，请刷新页面后重试'
-                      : '展开查看诊断后，再把这句改成你自己的正确版本'}
-              </p>
+                        ? '正确句补全失败，请刷新页面后重试'
+                        : '展开查看诊断后，再把这句改成你自己的正确版本'}
+                </p>
+              )}
               {sentenceDiff?.keyPhrases.length ? (
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
                   <span className="text-[10px] font-medium tracking-wide text-lime-700/80">
@@ -115,6 +144,50 @@ export function ErrorBankEntryCard({
                       {phrase}
                     </span>
                   ))}
+                </div>
+              ) : null}
+              {isExpanded ? (
+                <div className="flex flex-wrap items-center gap-2 pt-1.5">
+                  {editingCorrection ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSaveCorrection();
+                        }}
+                        disabled={!correctedDraft.trim()}
+                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        <Save size={12} />
+                        保存正确句
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCorrectedDraft(correctedSentence || '');
+                          setEditingCorrection(false);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
+                      >
+                        <X size={12} />
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCorrection(true);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50"
+                    >
+                      <Pencil size={12} />
+                      手动修改正确句
+                    </button>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -214,8 +287,8 @@ export function ErrorBankEntryCard({
             </div>
           </section>
 
-          {!entry.resolved ? (
-            <div className="pt-0.5">
+          <div className="pt-0.5 flex flex-wrap items-center gap-2">
+            {!entry.resolved ? (
               <button
                 type="button"
                 onClick={onResolve}
@@ -224,8 +297,17 @@ export function ErrorBankEntryCard({
                 <CheckCircle2 size={16} aria-hidden />
                 标记为已解决
               </button>
-            </div>
-          ) : null}
+            ) : (
+              <button
+                type="button"
+                onClick={onReopen}
+                className="inline-flex items-center gap-2 min-h-[44px] px-4 py-2 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+              >
+                <RotateCcw size={16} aria-hidden />
+                恢复为待复习
+              </button>
+            )}
+          </div>
         </div>
       ) : null}
     </div>

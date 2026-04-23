@@ -29,6 +29,15 @@ export function useStuckPointsDomain(
     [setStuckPoints],
   );
 
+  const reopenStuck = useCallback(
+    (stuckId: string) => {
+      setStuckPoints((prev) =>
+        prev.map((entry) => (entry.id === stuckId ? { ...entry, resolved: false } : entry)),
+      );
+    },
+    [setStuckPoints],
+  );
+
   const deleteStuckPoint = useCallback(
     (stuckId: string) => {
       setStuckPoints((prev) => prev.filter((entry) => entry.id !== stuckId));
@@ -52,6 +61,7 @@ export function useStuckPointsDomain(
   return {
     addStuckPoint,
     resolveStuck,
+    reopenStuck,
     deleteStuckPoint,
     setStuckPointRecommendedExpression,
   };

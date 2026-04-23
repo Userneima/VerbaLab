@@ -84,9 +84,32 @@ export function useCorpusDomain(
     [setCorpus],
   );
 
+  const updateCorpusEntrySentence = useCallback(
+    (entryId: string, sentence: string) => {
+      const trimmed = sentence.trim();
+      if (!trimmed) return;
+      const now = new Date().toISOString();
+      setCorpus((prev) =>
+        prev.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                userSentence: trimmed,
+                zhTranslation:
+                  trimmed === entry.userSentence.trim() ? entry.zhTranslation : undefined,
+                timestamp: now,
+              }
+            : entry,
+        ),
+      );
+    },
+    [setCorpus],
+  );
+
   return {
     addToCorpus,
     removeCorpusEntry,
     setCorpusEntryZhTranslation,
+    updateCorpusEntrySentence,
   };
 }

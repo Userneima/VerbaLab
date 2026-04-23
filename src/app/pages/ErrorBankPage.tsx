@@ -136,6 +136,10 @@ export function ErrorBankPage() {
     setExpandedId(prev => (prev === entryId ? null : prev));
   };
 
+  const reopenErrorEntry = (entryId: string) => {
+    store.reopenError(entryId);
+  };
+
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
       <div className="flex-1 min-h-0 overflow-y-auto bg-gradient-to-b from-rose-50/35 via-slate-50/80 to-slate-100/90">
@@ -258,6 +262,12 @@ export function ErrorBankPage() {
                       }
                       onDelete={() => deleteErrorEntry(entry.id)}
                       onResolve={() => store.resolveError(entry.id)}
+                      onReopen={() => reopenErrorEntry(entry.id)}
+                      onSaveCorrectedSentence={(sentence) => {
+                        store.setErrorBankCorrectedSentence(entry.id, sentence);
+                        setBackfilledCorrections(prev => ({ ...prev, [entry.id]: sentence }));
+                        setBackfillStatus(prev => ({ ...prev, [entry.id]: 'ready' }));
+                      }}
                     />
                   );
                 }}

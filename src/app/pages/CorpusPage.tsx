@@ -33,6 +33,8 @@ export function CorpusPage() {
   const [showZhTranslation, setShowZhTranslation] = useState(readShowZhPreference);
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [translateErr, setTranslateErr] = useState<string | null>(null);
+  const [editingSentenceId, setEditingSentenceId] = useState<string | null>(null);
+  const [editingSentenceDraft, setEditingSentenceDraft] = useState('');
 
   const sentenceHighlight = searchParams.get('sentence');
 
@@ -146,6 +148,26 @@ export function CorpusPage() {
     a.download = 'verbalab-corpus.txt';
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const startEditingSentence = (entryId: string, sentence: string) => {
+    setEditingSentenceId(entryId);
+    setEditingSentenceDraft(sentence);
+    setTranslateErr(null);
+  };
+
+  const cancelEditingSentence = () => {
+    setEditingSentenceId(null);
+    setEditingSentenceDraft('');
+  };
+
+  const saveEditedSentence = (entryId: string) => {
+    const trimmed = editingSentenceDraft.trim();
+    if (!trimmed) return;
+    store.updateCorpusEntrySentence(entryId, trimmed);
+    setEditingSentenceId(null);
+    setEditingSentenceDraft('');
+    if (flashSentenceId === entryId) setFlashSentenceId(null);
   };
 
   if (redirectToVocabReview) {
@@ -275,6 +297,7 @@ export function CorpusPage() {
                   const hasZh = Boolean(entry.zhTranslation?.trim());
                   const showZhBlock = showZhTranslation && hasZh;
                   const needsFetch = !hasZh;
+                  const isEditing = editingSentenceId === entry.id;
 
                   return (
                     <div
@@ -286,7 +309,33 @@ export function CorpusPage() {
                     >
                       <div className="flex items-start justify-between gap-3 sm:gap-4">
                         <div className="flex-1 min-w-0 space-y-3">
-                          {needsFetch ? (
+                          {isEditing ? (
+                            <div className="space-y-2.5">
+                              <textarea
+                                value={editingSentenceDraft}
+                                onChange={(e) => setEditingSentenceDraft(e.target.value)}
+                                className="w-full min-h-[6rem] rounded-xl border border-indigo-200 px-3 py-2 text-sm leading-relaxed text-gray-900 focus:outline-none focus:border-indigo-400"
+                              />
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => saveEditedSentence(entry.id)}
+                                  disabled={!editingSentenceDraft.trim()}
+                                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                                >
+                                  保存句子
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelEditingSentence}
+                                  className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
+                                >
+                                  取消
+                                </button>
+                                <span className="text-[11px] text-gray-400">修改后中文翻译会清空，避免旧译文失真</span>
+                              </div>
+                            </div>
+                          ) : needsFetch ? (
                             <button
                               type="button"
                               onClick={() => requestTranslationIfMissing(entry.id, entry.userSentence)}
@@ -343,9 +392,17 @@ export function CorpusPage() {
                           </div>
                           <button
                             type="button"
+                            onClick={() => startEditingSentence(entry.id, entry.userSentence)}
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600/90 px-2 py-1 rounded-md border border-indigo-100/80 hover:bg-indigo-50/80"
+                          >
+                            编辑
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => {
                               if (!confirm('确定删除这条语料句子？删除后无法恢复。')) return;
                               store.removeCorpusEntry(entry.id);
+                              if (editingSentenceId === entry.id) cancelEditingSentence();
                               if (flashSentenceId === entry.id) setFlashSentenceId(null);
                             }}
                             className="inline-flex items-center gap-1 text-[11px] font-medium text-red-600/90 px-2 py-1 rounded-md border border-red-100/80 hover:bg-red-50/80"

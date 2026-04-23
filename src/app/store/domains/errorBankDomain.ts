@@ -121,6 +121,30 @@ export function useErrorBankDomain(
     [setErrorBank],
   );
 
+  const reopenError = useCallback(
+    (errorId: string) => {
+      const now = new Date();
+      const nextReviewAt = new Date(
+        now.getTime() + ERROR_REVIEW_RESET_HOURS * MS_PER_HOUR,
+      ).toISOString();
+      setErrorBank((prev) =>
+        prev.map((entry) =>
+          entry.id === errorId
+            ? {
+                ...entry,
+                resolved: false,
+                reviewStage: 0,
+                nextReviewAt,
+                reviewReproClozeDone: false,
+                timestamp: now.toISOString(),
+              }
+            : entry,
+        ),
+      );
+    },
+    [setErrorBank],
+  );
+
   const removeErrorBankEntry = useCallback(
     (errorId: string) => {
       clearErrorReviewProduceDraft(errorId);
@@ -199,6 +223,7 @@ export function useErrorBankDomain(
     addToErrorBank,
     recordErrorReviewAttempt,
     resolveError,
+    reopenError,
     removeErrorBankEntry,
     setErrorBankCorrectedSentence,
     setErrorReviewReproClozeDone,
