@@ -211,7 +211,8 @@ export function FieldPage() {
     store.addStuckPoint({
       chineseThought: stuckInput,
       englishAttempt: '',
-      aiSuggestion: suggestion.suggestion,
+      aiSuggestion: suggestion.guidanceZh?.trim() || suggestion.suggestion,
+      recommendedExpression: suggestion.recommendedExpression,
       sourceMode: 'field',
     });
   }, [stuckInput, store]);

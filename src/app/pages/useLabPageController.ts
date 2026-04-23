@@ -195,7 +195,8 @@ export function useLabPageController() {
     store.addStuckPoint({
       chineseThought: thought,
       englishAttempt: userInput.trim(),
-      aiSuggestion: suggestion.suggestion,
+      aiSuggestion: suggestion.guidanceZh?.trim() || suggestion.suggestion,
+      recommendedExpression: suggestion.recommendedExpression,
       sourceMode: 'test',
       contextCollocation: currentItem.collocation.phrase,
     });

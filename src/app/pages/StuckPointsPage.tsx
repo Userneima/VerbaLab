@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import { LifeBuoy, Search, Filter, CheckCircle2, MessageSquare, Sparkles } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { getStuckPointDisplay } from '../utils/stuckPointDisplay';
@@ -105,6 +105,8 @@ export function StuckPointsPage() {
   const [savingSentence, setSavingSentence] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [latestHelperEntryId, setLatestHelperEntryId] = useState<string | null>(null);
+  const [backfilledTitleMap, setBackfilledTitleMap] = useState<Record<string, string>>({});
+  const [backfillingIds, setBackfillingIds] = useState<Record<string, boolean>>({});
 
   const corpusForSearch = useMemo(
     () => store.corpus.map((entry) => ({
@@ -168,6 +170,7 @@ export function StuckPointsPage() {
         chineseThought: thought,
         englishAttempt: '',
         aiSuggestion: result.guidanceZh?.trim() || result.suggestion,
+        recommendedExpression: result.recommendedExpression,
         sourceMode: 'free',
       });
       setLatestHelperEntryId(entry.id);
@@ -218,6 +221,51 @@ export function StuckPointsPage() {
 
     return result.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   }, [store.stuckPoints, search, filterStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const candidates = filtered.filter((entry) => {
+      const display = getStuckPointDisplay(entry);
+      if (display.titleEnglish?.trim()) return false;
+      if (backfilledTitleMap[entry.id]) return false;
+      if (backfillingIds[entry.id]) return false;
+      return true;
+    });
+    if (candidates.length === 0) return;
+
+    setBackfillingIds((prev) => ({
+      ...prev,
+      ...Object.fromEntries(candidates.map((entry) => [entry.id, true])),
+    }));
+
+    void (async () => {
+      for (const entry of candidates) {
+        if (cancelled) return;
+        try {
+          const result = await getStuckSuggestion(entry.chineseThought, corpusForSearch, verbDataForSearch);
+          const phrase = result.recommendedExpression?.trim();
+          if (phrase && !cancelled) {
+            store.setStuckPointRecommendedExpression(entry.id, phrase);
+            setBackfilledTitleMap((prev) => ({ ...prev, [entry.id]: phrase }));
+          }
+        } catch {
+          // ignore per-entry backfill failure
+        } finally {
+          if (!cancelled) {
+            setBackfillingIds((prev) => {
+              const next = { ...prev };
+              delete next[entry.id];
+              return next;
+            });
+          }
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filtered, backfilledTitleMap, backfillingIds, corpusForSearch, verbDataForSearch, store]);
 
   const unresolved = store.stuckPoints.filter(s => !s.resolved).length;
 
@@ -303,6 +351,7 @@ export function StuckPointsPage() {
               <div className="space-y-3">
                 {filtered.map(entry => {
                   const d = getStuckPointDisplay(entry);
+                  const titleEnglish = d.titleEnglish || backfilledTitleMap[entry.id];
                   return (
                   <div
                     key={entry.id}
@@ -321,12 +370,12 @@ export function StuckPointsPage() {
                             <MessageSquare size={14} className="text-amber-600 shrink-0 mt-0.5" />
                             <p className="min-w-0 flex-1 text-[15px] leading-snug line-clamp-3 text-left">
                               <span className="font-medium text-gray-900">{d.chinese}</span>
-                              {d.titleEnglish ? (
+                              {titleEnglish ? (
                                 <>
                                   <span className="mx-1.5 text-gray-300 font-normal select-none" aria-hidden>
                                     ·
                                   </span>
-                                  <span className="text-sm text-gray-600 font-normal">{d.titleEnglish}</span>
+                                  <span className="text-sm text-gray-600 font-normal">{titleEnglish}</span>
                                 </>
                               ) : null}
                             </p>
