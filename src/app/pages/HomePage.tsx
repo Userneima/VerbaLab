@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { BookOpen, FlaskConical, Zap, Target, Library, AlertCircle, LifeBuoy, ArrowRight, Flame, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BookOpen, FlaskConical, Zap, ArrowRight, Flame, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { useAuth } from '../store/AuthContext';
 import { VERBS } from '../data/verbData';
@@ -279,64 +279,6 @@ export function HomePage() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-safe sm:pb-6 space-y-6">
-        {/* Stats row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          {[
-            {
-              label: '已学搭配',
-              path: '/foundry',
-              value: store.stats.totalLearned,
-              icon: Target,
-              color: 'text-indigo-600',
-              bg: 'bg-indigo-50',
-            },
-            {
-              label: '个人语料库',
-              path: '/corpus',
-              value: store.stats.corpusSize,
-              icon: Library,
-              color: 'text-emerald-600',
-              bg: 'bg-emerald-50',
-            },
-            {
-              label: '语法错误',
-              path: '/errors',
-              value: store.stats.errorCount,
-              icon: AlertCircle,
-              color: 'text-red-500',
-              bg: 'bg-red-50',
-            },
-            {
-              label: '卡壳点',
-              path: '/stuck',
-              value: store.stats.stuckCount,
-              icon: LifeBuoy,
-              color: 'text-amber-500',
-              bg: 'bg-amber-50',
-            },
-          ].map(stat => (
-            <button
-              key={stat.label}
-              type="button"
-              onClick={() => navigate(stat.path)}
-              className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm text-left w-full hover:shadow-md hover:border-gray-200 transition-all group focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
-            >
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <div className={`w-9 h-9 ${stat.bg} rounded-lg flex items-center justify-center`}>
-                  <stat.icon size={18} className={stat.color} />
-                </div>
-                <ArrowRight
-                  size={16}
-                  className="text-gray-300 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0 mt-1"
-                  aria-hidden
-                />
-              </div>
-              <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
-              <div className="text-gray-500 text-sm mt-0.5">{stat.label}</div>
-            </button>
-          ))}
-        </div>
-
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
             <div>
