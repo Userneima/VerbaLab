@@ -68,14 +68,18 @@ Current responsibility:
 ### Vocab AI
 
 - `routes/ai-vocab.ts`
+- `routes/ai-vocab/prompts.ts`
+- `routes/ai-vocab/parser.ts`
+- `routes/ai-vocab/guardrails.ts`
+- `routes/ai-vocab/service.ts`
 
 Current responsibility:
 
-- spoken register assessment
-- register guide enrichment / fallback
-- vocab card generation
-- original-daily sentence generation
-- register-guide-only repair path
+- `ai-vocab.ts`: route registration and HTTP response handling
+- `prompts.ts`: model prompt construction and register-analysis examples
+- `parser.ts`: structured register-guide parsing and guide merging
+- `guardrails.ts`: allowed tags, style inference, semantic guardrails, quality checks
+- `service.ts`: AI call orchestration, retry/enrichment, original-daily fallback generation
 
 ### Admin / Observability
 

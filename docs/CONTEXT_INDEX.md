@@ -16,7 +16,8 @@
 - App shell：`src/app/App.tsx`、`src/app/components/Layout.tsx`
 - Store 组合层：`src/app/store/useStore.ts`
 - Store 类型：`src/app/store/types.ts`
-- 前端 API：`src/app/utils/api.ts`
+- 前端 API 门面：`src/app/utils/api.ts`
+- 前端 API 分区：`src/app/utils/api/admin.ts`、`src/app/utils/api/ai.ts`、`src/app/utils/api/sync.ts`、`src/app/utils/api/invites.ts`
 - Supabase Edge Function 入口：`supabase/functions/make-server-1fc434d6/index.ts`
 - Edge route map：`docs/edge-function-route-map.md`
 
@@ -42,10 +43,10 @@
 
 ## 大文件读取规则
 
-- `src/app/data/verbData.ts` 是静态学习数据。先用 `rg` 定位具体动词、搭配或问题，不要整文件读取。
-- `supabase/functions/make-server-1fc434d6/routes/ai-vocab.ts` 是词卡 AI 提示词和解析重文件。只在修改词卡生成、语体解析、tag 逻辑时读取相关片段。
-- `src/app/pages/FieldPage.tsx` 是实战仓大页面。优先查找具体状态或 handler，再读局部。
-- `src/app/utils/api.ts` 集中前端 API schema 和请求函数。按函数名搜索，不要从头通读。
+- `src/app/data/verbData.ts` 是静态学习数据，文件顶部有 `VERB_DATA_CONTEXT_INDEX`。先用 `rg` 定位具体动词、搭配或问题，不要整文件读取。
+- `supabase/functions/make-server-1fc434d6/routes/ai-vocab.ts` 现在只负责词卡 AI route handler；prompt / parser / guardrail / service 分别在 `routes/ai-vocab/` 下。
+- `src/app/pages/FieldPage.tsx` 现在主要负责实战仓页面编排；答题、语料、卡壳、评价面板在 `src/app/components/field/` 下。
+- `src/app/utils/api.ts` 只是兼容 re-export 门面。改具体能力时优先读 `src/app/utils/api/admin.ts`、`ai.ts`、`sync.ts`、`invites.ts` 或共享 `client.ts`。
 - `src/app/pages/InviteCodesPage.tsx` 现在被 `AdminPage` 作为邀请码 Tab 复用。改管理员后台时先看 `AdminPage.tsx`。
 
 ## 常见上下文陷阱

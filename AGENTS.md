@@ -66,7 +66,8 @@ npm run build
 
 ## AI and Backend Integration
 
-- [src/app/utils/api.ts](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/utils/api.ts): frontend API entry points
+- [src/app/utils/api.ts](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/utils/api.ts): frontend API compatibility facade
+- [src/app/utils/api/](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/utils/api): frontend API modules split by capability
 - [src/app/utils/grammarCheck.ts](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/utils/grammarCheck.ts): lab grammar checks and local fallback behavior
 - [supabase/functions/make-server-1fc434d6/index.ts](/Users/yuchao/Documents/GitHub/VerbaLab/supabase/functions/make-server-1fc434d6/index.ts): main Edge Function for AI features
 
@@ -268,7 +269,7 @@ If changing cross-origin API behavior, check CORS settings in the Edge Function 
 
 If changing AI output shape, update both:
 
-- frontend consumers in [src/app/utils/api.ts](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/utils/api.ts) and related UI
+- frontend consumers in [src/app/utils/api.ts](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/utils/api.ts), [src/app/utils/api/](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/utils/api), and related UI
 - backend schema/prompting in [supabase/functions/make-server-1fc434d6/index.ts](/Users/yuchao/Documents/GitHub/VerbaLab/supabase/functions/make-server-1fc434d6/index.ts)
 
 ---

@@ -1,3 +1,35 @@
+/**
+ * Static learning data index for maintainers and AI agents.
+ *
+ * This file is intentionally large because it stores built-in collocations,
+ * examples, and IELTS seed questions. Do not read the whole file for ordinary
+ * tasks. Use the index below and `rg` for a specific verb, collocation id, or
+ * exported helper.
+ *
+ * Sections:
+ * - Types and IELTS themes: top of file.
+ * - `VERBS`: built-in core verb bank, grouped by verb object. Search `verb: 'Get'`,
+ *   `id: 'C001'`, or a phrase such as `get started`.
+ * - `IELTS_QUESTIONS`: seed field-practice questions near the end of the file.
+ * - Helper exports: `getVerbById`, `getCollocationById`, `getDailyCollocations`,
+ *   `getAllCollocations`, `searchCollocations`, `getIELTSContextForPhrase`.
+ */
+export const VERB_DATA_CONTEXT_INDEX = {
+  purpose: 'Built-in collocation bank and IELTS seed questions. Static data, not runtime business logic.',
+  readRule: 'Search by verb, collocation id, phrase, or helper name. Avoid full-file reads.',
+  majorExports: [
+    'IELTS_THEMES',
+    'VERBS',
+    'IELTS_QUESTIONS',
+    'getVerbById',
+    'getCollocationById',
+    'getDailyCollocations',
+    'getAllCollocations',
+    'searchCollocations',
+    'getIELTSContextForPhrase',
+  ],
+} as const;
+
 export interface ExampleSentence {
   scenario: 'daily' | 'zju' | 'design';
   content: string;
