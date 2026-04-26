@@ -1,5 +1,5 @@
 import type { Hono } from "npm:hono";
-import { requireAuth, supabaseAdmin } from "../platform.ts";
+import { requireAuthUser, supabaseAdmin } from "../platform.ts";
 
 type InviteRow = {
   id: string;
@@ -10,6 +10,26 @@ type InviteRow = {
 };
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const INVITE_ADMIN_EMAILS = new Set(["wyc1186164839@gmail.com"]);
+
+function normalizeEmail(email: string | null | undefined): string {
+  return String(email || "").trim().toLowerCase();
+}
+
+async function requireInviteAdmin(c: any) {
+  const auth = await requireAuthUser(c);
+  if (!auth.ok) return auth;
+
+  const email = normalizeEmail(auth.user.email);
+  if (!INVITE_ADMIN_EMAILS.has(email)) {
+    return {
+      ok: false as const,
+      response: c.json({ error: "Forbidden" }, 403),
+    };
+  }
+
+  return auth;
+}
 
 function randomBlock(length = 4): string {
   const bytes = crypto.getRandomValues(new Uint8Array(length));
@@ -84,7 +104,7 @@ async function insertInviteBatch(count: number, note: string | null): Promise<In
 
 export function registerInviteRoutes(app: Hono) {
   app.get("/make-server-1fc434d6/invites", async (c) => {
-    const auth = await requireAuth(c);
+    const auth = await requireInviteAdmin(c);
     if (!auth.ok) return auth.response;
 
     const limitParam = Number(c.req.query("limit") || 40);
@@ -123,7 +143,7 @@ export function registerInviteRoutes(app: Hono) {
   });
 
   app.post("/make-server-1fc434d6/invites/generate", async (c) => {
-    const auth = await requireAuth(c);
+    const auth = await requireInviteAdmin(c);
     if (!auth.ok) return auth.response;
 
     const body = await c.req.json().catch(() => ({}));

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Copy, Loader2, RefreshCw, Sparkles, Ticket } from 'lucide-react';
+import { useAuth } from '../store/AuthContext';
 import {
   generateInvites,
   getInviteInventory,
   type InviteGenerateResult,
   type InviteItem,
 } from '../utils/api';
+import { isInviteAdminEmail } from '../utils/inviteAdmin';
 
 function formatTime(value: string | null | undefined) {
   if (!value) return '—';
@@ -22,6 +24,7 @@ async function copyText(text: string) {
 }
 
 export function InviteCodesPage() {
+  const { user } = useAuth();
   const [invites, setInvites] = useState<InviteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -33,8 +36,13 @@ export function InviteCodesPage() {
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [totalUnused, setTotalUnused] = useState(0);
   const [totalUsed, setTotalUsed] = useState(0);
+  const canManageInvites = isInviteAdminEmail(user?.email);
 
   const loadInvites = async (options?: { silent?: boolean }) => {
+    if (!canManageInvites) {
+      setLoading(false);
+      return;
+    }
     const silent = options?.silent ?? false;
     if (silent) {
       setRefreshing(true);
@@ -56,8 +64,9 @@ export function InviteCodesPage() {
   };
 
   useEffect(() => {
+    if (!canManageInvites) return;
     void loadInvites();
-  }, []);
+  }, [canManageInvites]);
 
   useEffect(() => {
     if (!copyMessage) return;
@@ -71,6 +80,7 @@ export function InviteCodesPage() {
   );
 
   const handleGenerate = async () => {
+    if (!canManageInvites) return;
     setGenerating(true);
     setError(null);
     setCopyMessage(null);
@@ -101,6 +111,22 @@ export function InviteCodesPage() {
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6">
+        {!canManageInvites && (
+          <section className="rounded-[28px] border border-amber-200 bg-white p-6 shadow-sm">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-700">
+              <Ticket size={15} />
+              邀请码管理
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">当前账号没有访问权限</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+              这里只有管理员账号 <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">wyc1186164839@gmail.com</code>{' '}
+              可以进入。这样做是为了避免邀请码库存被所有内测用户随手生成和消耗。
+            </p>
+          </section>
+        )}
+
+        {canManageInvites && (
+          <>
         <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-2xl">
@@ -321,6 +347,8 @@ export function InviteCodesPage() {
             )}
           </div>
         </section>
+          </>
+        )}
       </div>
     </div>
   );

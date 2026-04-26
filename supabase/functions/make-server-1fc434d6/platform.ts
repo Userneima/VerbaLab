@@ -145,6 +145,23 @@ export async function getUserId(c: any): Promise<string | null> {
   }
 }
 
+export async function getAuthenticatedUser(
+  c: any,
+): Promise<{ id: string; email: string | null } | null> {
+  const accessToken = c.req.header("Authorization")?.split(" ")[1];
+  if (!accessToken) return null;
+  try {
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
+    if (error || !user?.id) return null;
+    return {
+      id: user.id,
+      email: typeof user.email === "string" ? user.email : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function requireAuth(
   c: any,
 ): Promise<{ ok: true; userId: string } | { ok: false; response: Response }> {
@@ -156,6 +173,19 @@ export async function requireAuth(
     };
   }
   return { ok: true, userId };
+}
+
+export async function requireAuthUser(
+  c: any,
+): Promise<{ ok: true; user: { id: string; email: string | null } } | { ok: false; response: Response }> {
+  const user = await getAuthenticatedUser(c);
+  if (!user) {
+    return {
+      ok: false,
+      response: c.json({ error: "Unauthorized - valid auth token required" }, 401),
+    };
+  }
+  return { ok: true, user };
 }
 
 export function normalizeInviteCode(value: unknown): string {

@@ -25,6 +25,7 @@ import {
 import type { AppStore } from '../store/useStore';
 import { useStore, StoreProvider } from '../store/StoreContext';
 import { AuthProvider, useAuth } from '../store/AuthContext';
+import { isInviteAdminEmail } from '../utils/inviteAdmin';
 import { AuthPage } from '../pages/AuthPage';
 import { Suspense, useState, useEffect, useRef } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -111,6 +112,7 @@ function LayoutInner() {
 
   const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || '用户';
   const userEmail = user?.email || '';
+  const canManageInvites = isInviteAdminEmail(user?.email);
 
   const progressLinkClass = (isActive: boolean) =>
     `flex flex-col items-center justify-center rounded-lg p-2.5 text-center transition-all border ${
@@ -339,17 +341,19 @@ function LayoutInner() {
                     </p>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowUserMenu(false);
-                    navigate('/invites');
-                  }}
-                  className="w-full flex items-center gap-2 px-4 py-3 text-slate-200 hover:bg-slate-700/80 transition-colors text-sm border-b border-slate-700"
-                >
-                  <Ticket size={15} className="text-amber-400" />
-                  邀请码管理
-                </button>
+                {canManageInvites && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      navigate('/invites');
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-slate-200 hover:bg-slate-700/80 transition-colors text-sm border-b border-slate-700"
+                  >
+                    <Ticket size={15} className="text-amber-400" />
+                    邀请码管理
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={async () => {
