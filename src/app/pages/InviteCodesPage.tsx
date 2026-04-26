@@ -5,6 +5,7 @@ import {
   generateInvites,
   getInviteInventory,
   updateInviteAssignment,
+  updateInviteAssignmentsBatch,
   type InviteGenerateResult,
   type InviteItem,
   type InviteListResult,
@@ -78,7 +79,10 @@ export function InviteCodesPage() {
   const [latestGenerated, setLatestGenerated] = useState<InviteGenerateResult['invites']>([]);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [assignmentSavingId, setAssignmentSavingId] = useState<string | null>(null);
+  const [batchSaving, setBatchSaving] = useState(false);
   const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string>>({});
+  const [selectedInviteIds, setSelectedInviteIds] = useState<string[]>([]);
+  const [batchAssignedTo, setBatchAssignedTo] = useState('');
   const [totalAvailable, setTotalAvailable] = useState(0);
   const [totalAssigned, setTotalAssigned] = useState(0);
   const [totalUsed, setTotalUsed] = useState(0);
@@ -145,6 +149,27 @@ export function InviteCodesPage() {
     () => invites.filter((invite) => !invite.used_at && !invite.assigned_to),
     [invites],
   );
+  const unusedInvites = useMemo(
+    () => invites.filter((invite) => !invite.used_at),
+    [invites],
+  );
+  const selectedUnusedCount = selectedInviteIds.length;
+
+  const commitLocalInviteInventory = (nextInvites: InviteItem[]) => {
+    const nextTotalAvailable = nextInvites.filter((item) => !item.used_at && !item.assigned_to).length;
+    const nextTotalAssigned = nextInvites.filter((item) => !item.used_at && !!item.assigned_to).length;
+    const nextTotalUsed = nextInvites.filter((item) => !!item.used_at).length;
+    setInvites(nextInvites);
+    setTotalAvailable(nextTotalAvailable);
+    setTotalAssigned(nextTotalAssigned);
+    setTotalUsed(nextTotalUsed);
+    persistInviteInventory({
+      invites: nextInvites,
+      totalAvailable: nextTotalAvailable,
+      totalAssigned: nextTotalAssigned,
+      totalUsed: nextTotalUsed,
+    });
+  };
 
   const handleGenerate = async () => {
     if (!canManageInvites) return;
@@ -187,28 +212,47 @@ export function InviteCodesPage() {
         assignedTo: assignedTo || null,
       });
       const nextInvites = invites.map((item) => (item.id === invite.id ? result.invite : item));
-      setInvites(nextInvites);
+      commitLocalInviteInventory(nextInvites);
       setAssignmentDrafts((prev) => ({
         ...prev,
         [invite.id]: result.invite.assigned_to || '',
       }));
-      const nextTotalAvailable = nextInvites.filter((item) => !item.used_at && !item.assigned_to).length;
-      const nextTotalAssigned = nextInvites.filter((item) => !item.used_at && !!item.assigned_to).length;
-      const nextTotalUsed = nextInvites.filter((item) => !!item.used_at).length;
-      setTotalAvailable(nextTotalAvailable);
-      setTotalAssigned(nextTotalAssigned);
-      setTotalUsed(nextTotalUsed);
-      persistInviteInventory({
-        invites: nextInvites,
-        totalAvailable: nextTotalAvailable,
-        totalAssigned: nextTotalAssigned,
-        totalUsed: nextTotalUsed,
-      });
+      setSelectedInviteIds((prev) => prev.filter((id) => id !== invite.id));
       setCopyMessage(assignedTo ? `已标记发送给 ${assignedTo}` : '已撤回发送标记');
     } catch (assignmentError) {
       setError(assignmentError instanceof Error ? assignmentError.message : '更新发送状态失败');
     } finally {
       setAssignmentSavingId(null);
+    }
+  };
+
+  const handleBatchSaveAssignment = async () => {
+    const assignedTo = batchAssignedTo.trim();
+    if (!selectedInviteIds.length || !assignedTo) return;
+    setBatchSaving(true);
+    setError(null);
+    try {
+      const result = await updateInviteAssignmentsBatch({
+        inviteIds: selectedInviteIds,
+        assignedTo,
+      });
+      const updatedMap = new Map(result.invites.map((invite) => [invite.id, invite]));
+      const nextInvites = invites.map((invite) => updatedMap.get(invite.id) ?? invite);
+      commitLocalInviteInventory(nextInvites);
+      setAssignmentDrafts((prev) => {
+        const next = { ...prev };
+        for (const invite of result.invites) {
+          next[invite.id] = invite.assigned_to || '';
+        }
+        return next;
+      });
+      setCopyMessage(`已批量标记 ${result.invites.length} 个邀请码发送给 ${assignedTo}`);
+      setSelectedInviteIds([]);
+      setBatchAssignedTo('');
+    } catch (batchError) {
+      setError(batchError instanceof Error ? batchError.message : '批量更新发送状态失败');
+    } finally {
+      setBatchSaving(false);
     }
   };
 
@@ -356,6 +400,22 @@ export function InviteCodesPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
+                  onClick={() => setSelectedInviteIds(unusedInvites.map((invite) => invite.id))}
+                  disabled={!unusedInvites.length}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  全选未使用
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedInviteIds([])}
+                  disabled={!selectedInviteIds.length}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  清空选择
+                </button>
+                <button
+                  type="button"
                   onClick={() =>
                       void handleCopyCodes(
                         availableInvites.map((invite) => invite.code),
@@ -398,6 +458,32 @@ export function InviteCodesPage() {
               </div>
             ) : (
               <div className="mt-5 space-y-3">
+                {selectedUnusedCount > 0 && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-amber-800">已选择 {selectedUnusedCount} 个未使用邀请码</div>
+                        <div className="mt-1 text-xs text-amber-700">一次填写发送对象，就能把这批邀请码一起标记为已发送。</div>
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <input
+                          value={batchAssignedTo}
+                          onChange={(event) => setBatchAssignedTo(event.target.value)}
+                          placeholder="这批发给谁"
+                          className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-amber-400 sm:w-52"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleBatchSaveAssignment()}
+                          disabled={!batchAssignedTo.trim() || batchSaving}
+                          className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {batchSaving ? '批量保存中…' : '批量保存发送状态'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {invites.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
                     线上库里还没有邀请码，先在左侧生成一批。
@@ -406,6 +492,7 @@ export function InviteCodesPage() {
                   invites.map((invite) => {
                     const available = !invite.used_at && !invite.assigned_to;
                     const assigned = !invite.used_at && !!invite.assigned_to;
+                    const selected = selectedInviteIds.includes(invite.id);
                     return (
                       <div
                         key={invite.id}
@@ -420,6 +507,20 @@ export function InviteCodesPage() {
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
+                              {!invite.used_at && (
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={(event) =>
+                                    setSelectedInviteIds((prev) =>
+                                      event.target.checked
+                                        ? [...prev, invite.id]
+                                        : prev.filter((id) => id !== invite.id),
+                                    )
+                                  }
+                                  className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+                                />
+                              )}
                               <code className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-900 shadow-sm">
                                 {invite.code}
                               </code>

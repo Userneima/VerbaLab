@@ -230,6 +230,9 @@ export type InviteGenerateResult = z.infer<typeof inviteGenerateSchema>;
 export type InviteAssignmentResult = {
   invite: InviteItem;
 };
+export type InviteBatchAssignmentResult = {
+  invites: InviteItem[];
+};
 
 function parseStuckSuggestResult(raw: unknown): StuckSuggestResult {
   const parsed = stuckSuggestSchema.safeParse(raw);
@@ -263,11 +266,18 @@ function parseInviteGenerateResult(raw: unknown): InviteGenerateResult {
   return inviteGenerateSchema.parse(raw);
 }
 
+function parseInviteBatchAssignmentResult(raw: unknown): InviteBatchAssignmentResult {
+  return {
+    invites: z.array(inviteItemSchema).parse((raw as { invites?: unknown })?.invites ?? []),
+  };
+}
+
 export const __apiTestables = {
   parseSyncLoadResult,
   parseStuckSuggestResult,
   parseInviteListResult,
   parseInviteGenerateResult,
+  parseInviteBatchAssignmentResult,
 };
 
 export async function syncSave(
@@ -526,6 +536,40 @@ export async function updateInviteAssignment(payload: {
     return {
       invite: inviteItemSchema.parse((json as { invite?: unknown })?.invite),
     };
+  };
+
+  return doUpdate(token);
+}
+
+export async function updateInviteAssignmentsBatch(payload: {
+  inviteIds: string[];
+  assignedTo: string;
+}): Promise<InviteBatchAssignmentResult> {
+  const token = await getValidAccessToken();
+
+  const doUpdate = async (t: string): Promise<InviteBatchAssignmentResult> => {
+    let resp: Response;
+    try {
+      resp = await fetch(`${BASE_URL}/invites/assignments`, {
+        method: 'POST',
+        headers: authHeaders(t),
+        body: JSON.stringify({
+          inviteIds: payload.inviteIds,
+          assignedTo: payload.assignedTo,
+        }),
+      });
+    } catch (e) {
+      throw mapFetchFailureToMessage(e);
+    }
+    if (!resp.ok) {
+      const detail = await parseErrorResponse(resp);
+      if (resp.status === 401) {
+        return maybeRefreshAndRetry(doUpdate, detail, 1);
+      }
+      throw new Error(detail || 'Failed to update invite assignments');
+    }
+    const json: unknown = await resp.json();
+    return parseInviteBatchAssignmentResult(json);
   };
 
   return doUpdate(token);

@@ -64,4 +64,39 @@ describe('api sync parsing', () => {
     expect(parsed.totalUnused).toBe(1);
     expect(parsed.totalUsed).toBe(2);
   });
+
+  it('parses batch invite assignment payloads', () => {
+    const parsed = __apiTestables.parseInviteBatchAssignmentResult({
+      invites: [
+        {
+          id: '1',
+          code: 'VERBA-ABCD-EFGH-JKLM',
+          note: null,
+          batch_note: null,
+          assigned_to: 'Alice',
+          assigned_at: '2026-04-26T08:00:00.000Z',
+          used_by: null,
+          used_by_email: null,
+          created_at: '2026-04-26T00:00:00.000Z',
+          used_at: null,
+        },
+        {
+          id: '2',
+          code: 'VERBA-MNOP-QRST-UVWX',
+          note: null,
+          batch_note: null,
+          assigned_to: 'Alice',
+          assigned_at: '2026-04-26T08:00:00.000Z',
+          used_by: null,
+          used_by_email: null,
+          created_at: '2026-04-26T00:00:00.000Z',
+          used_at: null,
+        },
+      ],
+    });
+
+    expect(parsed.invites).toHaveLength(2);
+    expect(parsed.invites[0].assigned_to).toBe('Alice');
+    expect(parsed.invites[1].code).toBe('VERBA-MNOP-QRST-UVWX');
+  });
 });

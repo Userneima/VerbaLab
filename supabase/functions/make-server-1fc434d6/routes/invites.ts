@@ -100,6 +100,16 @@ async function attachUsedByEmails(rows: InviteRow[]): Promise<InviteViewRow[]> {
   return rows.map((row) => toInviteViewRow(row, row.used_by ? emailMap.get(row.used_by) ?? null : null));
 }
 
+async function loadInvitesByIds(inviteIds: string[]): Promise<InviteRow[]> {
+  const { data, error } = await supabaseAdmin
+    .from("invites")
+    .select("id, code, note, used_by, created_at, used_at")
+    .in("id", inviteIds);
+
+  if (error) throw error;
+  return (data || []) as InviteRow[];
+}
+
 async function requireInviteAdmin(c: any) {
   const auth = await requireAuthUser(c);
   if (!auth.ok) return auth;
@@ -299,6 +309,60 @@ export function registerInviteRoutes(app: Hono) {
 
     return c.json({
       invite: (await attachUsedByEmails([updatedInvite as InviteRow]))[0],
+    });
+  });
+
+  app.post("/make-server-1fc434d6/invites/assignments", async (c) => {
+    const auth = await requireInviteAdmin(c);
+    if (!auth.ok) return auth.response;
+
+    const { inviteIds: rawInviteIds, assignedTo: rawAssignedTo } = await c.req.json().catch(() => ({}));
+    const inviteIds = Array.isArray(rawInviteIds)
+      ? [...new Set(rawInviteIds.map((id) => String(id || "").trim()).filter(Boolean))]
+      : [];
+    const assignedTo = String(rawAssignedTo || "").trim().slice(0, 120);
+
+    if (!inviteIds.length) {
+      return c.json({ error: "inviteIds are required" }, 400);
+    }
+    if (!assignedTo) {
+      return c.json({ error: "assignedTo is required" }, 400);
+    }
+
+    const existingInvites = await loadInvitesByIds(inviteIds);
+    if (existingInvites.length !== inviteIds.length) {
+      return c.json({ error: "Some invites were not found" }, 404);
+    }
+
+    const usedInvite = existingInvites.find((invite) => invite.used_at);
+    if (usedInvite) {
+      return c.json({ error: `Invite already used: ${usedInvite.code}` }, 400);
+    }
+
+    const assignedAt = new Date().toISOString();
+    const noteUpdates = existingInvites.map((invite) => ({
+      id: invite.id,
+      note: serializeInviteNote({
+        batchNote: parseInviteNote(invite.note).batchNote,
+        assignedTo,
+        assignedAt,
+      }),
+    }));
+
+    const { error: updateError } = await supabaseAdmin
+      .from("invites")
+      .upsert(noteUpdates, { onConflict: "id" });
+
+    if (updateError) throw updateError;
+
+    const updatedInvites = await loadInvitesByIds(inviteIds);
+    const updatedMap = new Map(updatedInvites.map((invite) => [invite.id, invite]));
+    const orderedInvites = inviteIds
+      .map((inviteId) => updatedMap.get(inviteId))
+      .filter(Boolean) as InviteRow[];
+
+    return c.json({
+      invites: await attachUsedByEmails(orderedInvites),
     });
   });
 }
