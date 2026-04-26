@@ -202,12 +202,17 @@ const inviteItemSchema = z.object({
   id: z.string(),
   code: z.string(),
   note: z.string().nullable().optional(),
+  batch_note: z.string().nullable().optional(),
+  assigned_to: z.string().nullable().optional(),
+  assigned_at: z.string().nullable().optional(),
   created_at: z.string(),
   used_at: z.string().nullable().optional(),
 });
 
 const inviteListSchema = z.object({
   invites: z.array(inviteItemSchema).default([]),
+  totalAvailable: z.number().int().nonnegative().default(0),
+  totalAssigned: z.number().int().nonnegative().default(0),
   totalUnused: z.number().int().nonnegative().default(0),
   totalUsed: z.number().int().nonnegative().default(0),
 });
@@ -220,6 +225,9 @@ const inviteGenerateSchema = z.object({
 export type InviteItem = z.infer<typeof inviteItemSchema>;
 export type InviteListResult = z.infer<typeof inviteListSchema>;
 export type InviteGenerateResult = z.infer<typeof inviteGenerateSchema>;
+export type InviteAssignmentResult = {
+  invite: InviteItem;
+};
 
 function parseStuckSuggestResult(raw: unknown): StuckSuggestResult {
   const parsed = stuckSuggestSchema.safeParse(raw);
@@ -484,6 +492,41 @@ export async function generateInvites(payload: {
   };
 
   return doGenerate(token);
+}
+
+export async function updateInviteAssignment(payload: {
+  inviteId: string;
+  assignedTo?: string | null;
+}): Promise<InviteAssignmentResult> {
+  const token = await getValidAccessToken();
+
+  const doUpdate = async (t: string): Promise<InviteAssignmentResult> => {
+    let resp: Response;
+    try {
+      resp = await fetch(`${BASE_URL}/invites/${payload.inviteId}/assignment`, {
+        method: 'POST',
+        headers: authHeaders(t),
+        body: JSON.stringify({
+          assignedTo: payload.assignedTo ?? null,
+        }),
+      });
+    } catch (e) {
+      throw mapFetchFailureToMessage(e);
+    }
+    if (!resp.ok) {
+      const detail = await parseErrorResponse(resp);
+      if (resp.status === 401) {
+        return maybeRefreshAndRetry(doUpdate, detail, 1);
+      }
+      throw new Error(detail || 'Failed to update invite assignment');
+    }
+    const json: unknown = await resp.json();
+    return {
+      invite: inviteItemSchema.parse((json as { invite?: unknown })?.invite),
+    };
+  };
+
+  return doUpdate(token);
 }
 
 /** 词卡工坊：语体判断 + 按搭配白名单生成例句（口语目标 1 条；若原词偏书面与口语目标不同，再追加 1 条「原词在日常里怎么说」） */

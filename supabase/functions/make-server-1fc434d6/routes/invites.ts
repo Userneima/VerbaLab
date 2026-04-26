@@ -9,11 +9,72 @@ type InviteRow = {
   used_at: string | null;
 };
 
+type InviteNotePayload = {
+  batchNote: string | null;
+  assignedTo: string | null;
+  assignedAt: string | null;
+};
+
+type InviteViewRow = {
+  id: string;
+  code: string;
+  note: string | null;
+  batch_note: string | null;
+  assigned_to: string | null;
+  assigned_at: string | null;
+  created_at: string;
+  used_at: string | null;
+};
+
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const INVITE_ADMIN_EMAILS = new Set(["wyc1186164839@gmail.com"]);
 
 function normalizeEmail(email: string | null | undefined): string {
   return String(email || "").trim().toLowerCase();
+}
+
+function parseInviteNote(note: string | null | undefined): InviteNotePayload {
+  const raw = String(note || "").trim();
+  if (!raw) {
+    return { batchNote: null, assignedTo: null, assignedAt: null };
+  }
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const batchNote = String(parsed.batchNote || "").trim() || null;
+    const assignedTo = String(parsed.assignedTo || "").trim() || null;
+    const assignedAt = String(parsed.assignedAt || "").trim() || null;
+    if (batchNote || assignedTo || assignedAt) {
+      return { batchNote, assignedTo, assignedAt };
+    }
+  } catch {
+    // legacy plain-text note
+  }
+  return { batchNote: raw, assignedTo: null, assignedAt: null };
+}
+
+function serializeInviteNote(payload: InviteNotePayload): string | null {
+  const batchNote = String(payload.batchNote || "").trim() || null;
+  const assignedTo = String(payload.assignedTo || "").trim() || null;
+  const assignedAt = String(payload.assignedAt || "").trim() || null;
+
+  if (!batchNote && !assignedTo) return null;
+  if (!assignedTo && batchNote) return batchNote;
+
+  return JSON.stringify({
+    batchNote,
+    assignedTo,
+    assignedAt,
+  });
+}
+
+function toInviteViewRow(row: InviteRow): InviteViewRow {
+  const meta = parseInviteNote(row.note);
+  return {
+    ...row,
+    batch_note: meta.batchNote,
+    assigned_to: meta.assignedTo,
+    assigned_at: meta.assignedAt,
+  };
 }
 
 async function requireInviteAdmin(c: any) {
@@ -135,8 +196,14 @@ export function registerInviteRoutes(app: Hono) {
     if (unusedError) throw unusedError;
     if (usedError) throw usedError;
 
+    const inviteRows = ((invites || []) as InviteRow[]).map(toInviteViewRow);
+    const totalAssigned = inviteRows.filter((invite) => !invite.used_at && invite.assigned_to).length;
+    const totalAvailable = inviteRows.filter((invite) => !invite.used_at && !invite.assigned_to).length;
+
     return c.json({
-      invites: (invites || []) as InviteRow[],
+      invites: inviteRows,
+      totalAvailable,
+      totalAssigned,
       totalUnused: totalUnused || 0,
       totalUsed: totalUsed || 0,
     });
@@ -157,8 +224,58 @@ export function registerInviteRoutes(app: Hono) {
     const invites = await insertInviteBatch(count, note);
 
     return c.json({
-      invites,
+      invites: invites.map(toInviteViewRow),
       generatedCount: invites.length,
+    });
+  });
+
+  app.post("/make-server-1fc434d6/invites/:inviteId/assignment", async (c) => {
+    const auth = await requireInviteAdmin(c);
+    if (!auth.ok) return auth.response;
+
+    const inviteId = String(c.req.param("inviteId") || "").trim();
+    if (!inviteId) {
+      return c.json({ error: "inviteId is required" }, 400);
+    }
+
+    const { assignedTo: rawAssignedTo } = await c.req.json().catch(() => ({}));
+    const assignedTo = String(rawAssignedTo || "").trim().slice(0, 120) || null;
+
+    const { data: existingInvite, error: existingError } = await supabaseAdmin
+      .from("invites")
+      .select("id, code, note, created_at, used_at")
+      .eq("id", inviteId)
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+    if (!existingInvite) {
+      return c.json({ error: "Invite not found" }, 404);
+    }
+    if (existingInvite.used_at) {
+      return c.json({ error: "Invite already used" }, 400);
+    }
+
+    const meta = parseInviteNote(existingInvite.note);
+    const nextNote = serializeInviteNote({
+      batchNote: meta.batchNote,
+      assignedTo,
+      assignedAt: assignedTo ? new Date().toISOString() : null,
+    });
+
+    const { data: updatedInvite, error: updateError } = await supabaseAdmin
+      .from("invites")
+      .update({ note: nextNote })
+      .eq("id", inviteId)
+      .select("id, code, note, created_at, used_at")
+      .maybeSingle();
+
+    if (updateError) throw updateError;
+    if (!updatedInvite) {
+      return c.json({ error: "Failed to update invite assignment" }, 500);
+    }
+
+    return c.json({
+      invite: toInviteViewRow(updatedInvite as InviteRow),
     });
   });
 }

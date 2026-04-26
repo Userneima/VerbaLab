@@ -4,6 +4,7 @@ import { useAuth } from '../store/AuthContext';
 import {
   generateInvites,
   getInviteInventory,
+  updateInviteAssignment,
   type InviteGenerateResult,
   type InviteItem,
 } from '../utils/api';
@@ -34,7 +35,10 @@ export function InviteCodesPage() {
   const [generating, setGenerating] = useState(false);
   const [latestGenerated, setLatestGenerated] = useState<InviteGenerateResult['invites']>([]);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
-  const [totalUnused, setTotalUnused] = useState(0);
+  const [assignmentSavingId, setAssignmentSavingId] = useState<string | null>(null);
+  const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string>>({});
+  const [totalAvailable, setTotalAvailable] = useState(0);
+  const [totalAssigned, setTotalAssigned] = useState(0);
   const [totalUsed, setTotalUsed] = useState(0);
   const canManageInvites = isInviteAdminEmail(user?.email);
 
@@ -53,8 +57,18 @@ export function InviteCodesPage() {
     try {
       const result = await getInviteInventory(60);
       setInvites(result.invites);
-      setTotalUnused(result.totalUnused);
+      setTotalAvailable(result.totalAvailable);
+      setTotalAssigned(result.totalAssigned);
       setTotalUsed(result.totalUsed);
+      setAssignmentDrafts((prev) => {
+        const next = { ...prev };
+        for (const invite of result.invites) {
+          if (!(invite.id in next)) {
+            next[invite.id] = invite.assigned_to || '';
+          }
+        }
+        return next;
+      });
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : '加载邀请码失败');
     } finally {
@@ -74,8 +88,8 @@ export function InviteCodesPage() {
     return () => window.clearTimeout(timer);
   }, [copyMessage]);
 
-  const unusedInvites = useMemo(
-    () => invites.filter((invite) => !invite.used_at),
+  const availableInvites = useMemo(
+    () => invites.filter((invite) => !invite.used_at && !invite.assigned_to),
     [invites],
   );
 
@@ -105,6 +119,36 @@ export function InviteCodesPage() {
       setCopyMessage(message);
     } catch (copyError) {
       setError(copyError instanceof Error ? copyError.message : '复制失败');
+    }
+  };
+
+  const handleSaveAssignment = async (invite: InviteItem, explicitAssignedTo?: string | null) => {
+    const assignedTo = explicitAssignedTo === undefined
+      ? (assignmentDrafts[invite.id] || '').trim()
+      : (explicitAssignedTo || '').trim();
+    setAssignmentSavingId(invite.id);
+    setError(null);
+    try {
+      const result = await updateInviteAssignment({
+        inviteId: invite.id,
+        assignedTo: assignedTo || null,
+      });
+      setInvites((prev) =>
+        prev.map((item) => (item.id === invite.id ? result.invite : item)),
+      );
+      setAssignmentDrafts((prev) => ({
+        ...prev,
+        [invite.id]: result.invite.assigned_to || '',
+      }));
+
+      const nextInvites = invites.map((item) => (item.id === invite.id ? result.invite : item));
+      setTotalAvailable(nextInvites.filter((item) => !item.used_at && !item.assigned_to).length);
+      setTotalAssigned(nextInvites.filter((item) => !item.used_at && !!item.assigned_to).length);
+      setCopyMessage(assignedTo ? `已标记发送给 ${assignedTo}` : '已撤回发送标记');
+    } catch (assignmentError) {
+      setError(assignmentError instanceof Error ? assignmentError.message : '更新发送状态失败');
+    } finally {
+      setAssignmentSavingId(null);
     }
   };
 
@@ -142,7 +186,11 @@ export function InviteCodesPage() {
             <div className="grid shrink-0 grid-cols-3 gap-3">
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
                 <div className="text-xs text-emerald-700">可用</div>
-                <div className="mt-1 text-2xl font-bold text-emerald-700">{totalUnused}</div>
+                <div className="mt-1 text-2xl font-bold text-emerald-700">{totalAvailable}</div>
+              </div>
+              <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">
+                <div className="text-xs text-amber-700">已发送</div>
+                <div className="mt-1 text-2xl font-bold text-amber-700">{totalAssigned}</div>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <div className="text-xs text-slate-500">已用</div>
@@ -150,7 +198,7 @@ export function InviteCodesPage() {
               </div>
               <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3">
                 <div className="text-xs text-indigo-600">总数</div>
-                <div className="mt-1 text-2xl font-bold text-indigo-700">{totalUnused + totalUsed}</div>
+                <div className="mt-1 text-2xl font-bold text-indigo-700">{totalAvailable + totalAssigned + totalUsed}</div>
               </div>
             </div>
           </div>
@@ -249,12 +297,12 @@ export function InviteCodesPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    void handleCopyCodes(
-                      unusedInvites.map((invite) => invite.code),
-                      `已复制 ${unusedInvites.length} 个未使用邀请码`,
-                    )
-                  }
-                  disabled={!unusedInvites.length}
+                      void handleCopyCodes(
+                        availableInvites.map((invite) => invite.code),
+                        `已复制 ${availableInvites.length} 个可用邀请码`,
+                      )
+                    }
+                  disabled={!availableInvites.length}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Copy size={14} />
@@ -296,13 +344,16 @@ export function InviteCodesPage() {
                   </div>
                 ) : (
                   invites.map((invite) => {
-                    const available = !invite.used_at;
+                    const available = !invite.used_at && !invite.assigned_to;
+                    const assigned = !invite.used_at && !!invite.assigned_to;
                     return (
                       <div
                         key={invite.id}
                         className={`rounded-2xl border px-4 py-4 transition-colors ${
                           available
                             ? 'border-emerald-100 bg-emerald-50/50'
+                            : assigned
+                              ? 'border-amber-100 bg-amber-50/50'
                             : 'border-slate-200 bg-slate-50'
                         }`}
                       >
@@ -316,28 +367,76 @@ export function InviteCodesPage() {
                                 className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                                   available
                                     ? 'bg-emerald-100 text-emerald-700'
+                                    : assigned
+                                      ? 'bg-amber-100 text-amber-700'
                                     : 'bg-slate-200 text-slate-600'
                                 }`}
                               >
-                                {available ? '可用' : '已使用'}
+                                {available ? '可用' : assigned ? '已发送' : '已使用'}
                               </span>
                             </div>
                             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-500">
                               <span>创建于 {formatTime(invite.created_at)}</span>
                               <span>使用于 {formatTime(invite.used_at)}</span>
-                              {invite.note && <span>备注：{invite.note}</span>}
+                              {invite.assigned_to && <span>已发给：{invite.assigned_to}</span>}
+                              {invite.assigned_at && <span>发送于 {formatTime(invite.assigned_at)}</span>}
+                              {invite.batch_note && <span>备注：{invite.batch_note}</span>}
                             </div>
                           </div>
-                          {available && (
-                            <button
-                              type="button"
-                              onClick={() => void handleCopyCodes([invite.code], `已复制 ${invite.code}`)}
-                              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100"
-                            >
-                              <Copy size={14} />
-                              复制
-                            </button>
-                          )}
+                          <div className="flex shrink-0 flex-col gap-2 md:items-end">
+                            {!invite.used_at && (
+                              <div className="flex flex-col gap-2 md:items-end">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <input
+                                    value={assignmentDrafts[invite.id] ?? invite.assigned_to ?? ''}
+                                    onChange={(event) =>
+                                      setAssignmentDrafts((prev) => ({
+                                        ...prev,
+                                        [invite.id]: event.target.value,
+                                      }))
+                                    }
+                                    placeholder="已发送给谁"
+                                    className="w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-amber-400"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSaveAssignment(invite)}
+                                    disabled={assignmentSavingId === invite.id}
+                                    className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {assignmentSavingId === invite.id ? '保存中…' : '保存发送状态'}
+                                  </button>
+                                  {assigned && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAssignmentDrafts((prev) => ({ ...prev, [invite.id]: '' }));
+                                        void handleSaveAssignment(invite, null);
+                                      }}
+                                      disabled={assignmentSavingId === invite.id}
+                                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      撤回发送
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            {(available || assigned) && (
+                              <button
+                                type="button"
+                                onClick={() => void handleCopyCodes([invite.code], `已复制 ${invite.code}`)}
+                                className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-3 py-2 text-xs font-medium transition ${
+                                  available
+                                    ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                                    : 'border-amber-200 text-amber-700 hover:bg-amber-100'
+                                }`}
+                              >
+                                <Copy size={14} />
+                                复制
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

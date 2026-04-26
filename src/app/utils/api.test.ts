@@ -41,16 +41,23 @@ describe('api sync parsing', () => {
           id: '1',
           code: 'VERBA-ABCD-EFGH-JKLM',
           note: null,
+          batch_note: null,
+          assigned_to: 'Alice',
+          assigned_at: '2026-04-26T08:00:00.000Z',
           created_at: '2026-04-26T00:00:00.000Z',
           used_at: null,
         },
       ],
+      totalAvailable: 0,
+      totalAssigned: 1,
       totalUnused: 1,
       totalUsed: 2,
     });
 
     expect(parsed.invites[0].code).toBe('VERBA-ABCD-EFGH-JKLM');
+    expect(parsed.invites[0].assigned_to).toBe('Alice');
     expect(parsed.invites[0].used_at).toBeNull();
+    expect(parsed.totalAssigned).toBe(1);
     expect(parsed.totalUnused).toBe(1);
     expect(parsed.totalUsed).toBe(2);
   });
