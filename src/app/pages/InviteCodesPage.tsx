@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { Copy, Loader2, RefreshCw, Sparkles, Ticket } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import {
@@ -7,8 +7,13 @@ import {
   updateInviteAssignment,
   type InviteGenerateResult,
   type InviteItem,
+  type InviteListResult,
 } from '../utils/api';
 import { isInviteAdminEmail } from '../utils/inviteAdmin';
+import {
+  loadInviteInventoryCache,
+  saveInviteInventoryCache,
+} from '../utils/inviteInventoryCache';
 
 function formatTime(value: string | null | undefined) {
   if (!value) return '—';
@@ -22,6 +27,43 @@ function formatTime(value: string | null | undefined) {
 
 async function copyText(text: string) {
   await navigator.clipboard.writeText(text);
+}
+
+function applyInviteInventory(
+  result: Pick<InviteListResult, 'invites' | 'totalAvailable' | 'totalAssigned' | 'totalUsed'>,
+  options: {
+    setInvites: Dispatch<SetStateAction<InviteItem[]>>;
+    setTotalAvailable: Dispatch<SetStateAction<number>>;
+    setTotalAssigned: Dispatch<SetStateAction<number>>;
+    setTotalUsed: Dispatch<SetStateAction<number>>;
+    setAssignmentDrafts: Dispatch<SetStateAction<Record<string, string>>>;
+  },
+) {
+  options.setInvites(result.invites);
+  options.setTotalAvailable(result.totalAvailable);
+  options.setTotalAssigned(result.totalAssigned);
+  options.setTotalUsed(result.totalUsed);
+  options.setAssignmentDrafts((prev) => {
+    const next = { ...prev };
+    for (const invite of result.invites) {
+      if (!(invite.id in next)) {
+        next[invite.id] = invite.assigned_to || '';
+      }
+    }
+    return next;
+  });
+}
+
+function persistInviteInventory(
+  result: Pick<InviteListResult, 'invites' | 'totalAvailable' | 'totalAssigned' | 'totalUsed'>,
+) {
+  saveInviteInventoryCache({
+    invites: result.invites,
+    totalAvailable: result.totalAvailable,
+    totalAssigned: result.totalAssigned,
+    totalUsed: result.totalUsed,
+    cachedAt: new Date().toISOString(),
+  });
 }
 
 export function InviteCodesPage() {
@@ -56,19 +98,14 @@ export function InviteCodesPage() {
     setError(null);
     try {
       const result = await getInviteInventory(60);
-      setInvites(result.invites);
-      setTotalAvailable(result.totalAvailable);
-      setTotalAssigned(result.totalAssigned);
-      setTotalUsed(result.totalUsed);
-      setAssignmentDrafts((prev) => {
-        const next = { ...prev };
-        for (const invite of result.invites) {
-          if (!(invite.id in next)) {
-            next[invite.id] = invite.assigned_to || '';
-          }
-        }
-        return next;
+      applyInviteInventory(result, {
+        setInvites,
+        setTotalAvailable,
+        setTotalAssigned,
+        setTotalUsed,
+        setAssignmentDrafts,
       });
+      persistInviteInventory(result);
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : '加载邀请码失败');
     } finally {
@@ -78,7 +115,23 @@ export function InviteCodesPage() {
   };
 
   useEffect(() => {
-    if (!canManageInvites) return;
+    if (!canManageInvites) {
+      setLoading(false);
+      return;
+    }
+    const cached = loadInviteInventoryCache();
+    if (cached) {
+      applyInviteInventory(cached, {
+        setInvites,
+        setTotalAvailable,
+        setTotalAssigned,
+        setTotalUsed,
+        setAssignmentDrafts,
+      });
+      setLoading(false);
+      void loadInvites({ silent: true });
+      return;
+    }
     void loadInvites();
   }, [canManageInvites]);
 
@@ -133,17 +186,24 @@ export function InviteCodesPage() {
         inviteId: invite.id,
         assignedTo: assignedTo || null,
       });
-      setInvites((prev) =>
-        prev.map((item) => (item.id === invite.id ? result.invite : item)),
-      );
+      const nextInvites = invites.map((item) => (item.id === invite.id ? result.invite : item));
+      setInvites(nextInvites);
       setAssignmentDrafts((prev) => ({
         ...prev,
         [invite.id]: result.invite.assigned_to || '',
       }));
-
-      const nextInvites = invites.map((item) => (item.id === invite.id ? result.invite : item));
-      setTotalAvailable(nextInvites.filter((item) => !item.used_at && !item.assigned_to).length);
-      setTotalAssigned(nextInvites.filter((item) => !item.used_at && !!item.assigned_to).length);
+      const nextTotalAvailable = nextInvites.filter((item) => !item.used_at && !item.assigned_to).length;
+      const nextTotalAssigned = nextInvites.filter((item) => !item.used_at && !!item.assigned_to).length;
+      const nextTotalUsed = nextInvites.filter((item) => !!item.used_at).length;
+      setTotalAvailable(nextTotalAvailable);
+      setTotalAssigned(nextTotalAssigned);
+      setTotalUsed(nextTotalUsed);
+      persistInviteInventory({
+        invites: nextInvites,
+        totalAvailable: nextTotalAvailable,
+        totalAssigned: nextTotalAssigned,
+        totalUsed: nextTotalUsed,
+      });
       setCopyMessage(assignedTo ? `已标记发送给 ${assignedTo}` : '已撤回发送标记');
     } catch (assignmentError) {
       setError(assignmentError instanceof Error ? assignmentError.message : '更新发送状态失败');
