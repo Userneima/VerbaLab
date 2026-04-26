@@ -33,3 +33,11 @@ export function saveInviteInventoryCache(value: InviteInventoryCache) {
     // ignore storage write failures
   }
 }
+
+export function clearInviteInventoryCache() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore storage removal failures
+  }
+}

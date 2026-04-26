@@ -12,6 +12,7 @@ import {
 } from '../utils/api';
 import { isInviteAdminEmail } from '../utils/inviteAdmin';
 import {
+  clearInviteInventoryCache,
   loadInviteInventoryCache,
   saveInviteInventoryCache,
 } from '../utils/inviteInventoryCache';
@@ -68,7 +69,7 @@ function persistInviteInventory(
 }
 
 export function InviteCodesPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [invites, setInvites] = useState<InviteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -119,7 +120,16 @@ export function InviteCodesPage() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
     if (!canManageInvites) {
+      clearInviteInventoryCache();
+      setInvites([]);
+      setTotalAvailable(0);
+      setTotalAssigned(0);
+      setTotalUsed(0);
+      setAssignmentDrafts({});
+      setSelectedInviteIds([]);
+      setBatchAssignedTo('');
       setLoading(false);
       return;
     }
@@ -137,7 +147,7 @@ export function InviteCodesPage() {
       return;
     }
     void loadInvites();
-  }, [canManageInvites]);
+  }, [authLoading, canManageInvites]);
 
   useEffect(() => {
     if (!copyMessage) return;
@@ -259,7 +269,7 @@ export function InviteCodesPage() {
   return (
     <div className="h-full overflow-y-auto bg-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6">
-        {!canManageInvites && (
+        {!authLoading && !canManageInvites && (
           <section className="rounded-[28px] border border-amber-200 bg-white p-6 shadow-sm">
             <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-700">
               <Ticket size={15} />

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  clearInviteInventoryCache,
   loadInviteInventoryCache,
   saveInviteInventoryCache,
   type InviteInventoryCache,
@@ -39,6 +40,12 @@ describe('invite inventory cache', () => {
 
   it('ignores malformed cache payloads', () => {
     localStorage.setItem('ff_invite_inventory_cache_v1', JSON.stringify({ invites: [] }));
+    expect(loadInviteInventoryCache()).toBeNull();
+  });
+
+  it('clears cached inventory', () => {
+    saveInviteInventoryCache(makeCache());
+    clearInviteInventoryCache();
     expect(loadInviteInventoryCache()).toBeNull();
   });
 });
