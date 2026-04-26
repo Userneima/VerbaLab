@@ -33,4 +33,25 @@ describe('api sync parsing', () => {
     expect(parsed.guidanceZh).toBe('优先说清动作，再补细节。');
     expect(parsed.examples[0].sentence).toBe('I want to explain it in a simpler way.');
   });
+
+  it('parses invite inventory payloads with optional nullable fields', () => {
+    const parsed = __apiTestables.parseInviteListResult({
+      invites: [
+        {
+          id: '1',
+          code: 'VERBA-ABCD-EFGH-JKLM',
+          note: null,
+          created_at: '2026-04-26T00:00:00.000Z',
+          used_at: null,
+        },
+      ],
+      totalUnused: 1,
+      totalUsed: 2,
+    });
+
+    expect(parsed.invites[0].code).toBe('VERBA-ABCD-EFGH-JKLM');
+    expect(parsed.invites[0].used_at).toBeNull();
+    expect(parsed.totalUnused).toBe(1);
+    expect(parsed.totalUsed).toBe(2);
+  });
 });

@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from 'react-router';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import {
   BookOpen,
   FlaskConical,
@@ -19,6 +19,7 @@ import {
   X,
   Sparkles,
   BookMarked,
+  Ticket,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppStore } from '../store/useStore';
@@ -86,6 +87,7 @@ function AuthGate() {
 
 function LayoutInner() {
   const location = useLocation();
+  const navigate = useNavigate();
   const store = useStore();
   const { user, signOut } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -337,6 +339,17 @@ function LayoutInner() {
                     </p>
                   )}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    navigate('/invites');
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-slate-200 hover:bg-slate-700/80 transition-colors text-sm border-b border-slate-700"
+                >
+                  <Ticket size={15} className="text-amber-400" />
+                  邀请码管理
+                </button>
                 <button
                   type="button"
                   onClick={async () => {

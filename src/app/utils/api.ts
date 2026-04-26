@@ -198,6 +198,29 @@ const stuckSuggestSchema = z.object({
 
 export type StuckSuggestResult = z.infer<typeof stuckSuggestSchema>;
 
+const inviteItemSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  note: z.string().nullable().optional(),
+  created_at: z.string(),
+  used_at: z.string().nullable().optional(),
+});
+
+const inviteListSchema = z.object({
+  invites: z.array(inviteItemSchema).default([]),
+  totalUnused: z.number().int().nonnegative().default(0),
+  totalUsed: z.number().int().nonnegative().default(0),
+});
+
+const inviteGenerateSchema = z.object({
+  invites: z.array(inviteItemSchema).default([]),
+  generatedCount: z.number().int().nonnegative().default(0),
+});
+
+export type InviteItem = z.infer<typeof inviteItemSchema>;
+export type InviteListResult = z.infer<typeof inviteListSchema>;
+export type InviteGenerateResult = z.infer<typeof inviteGenerateSchema>;
+
 function parseStuckSuggestResult(raw: unknown): StuckSuggestResult {
   const parsed = stuckSuggestSchema.safeParse(raw);
   if (!parsed.success) {
@@ -222,9 +245,19 @@ function parseStuckSuggestResult(raw: unknown): StuckSuggestResult {
   };
 }
 
+function parseInviteListResult(raw: unknown): InviteListResult {
+  return inviteListSchema.parse(raw);
+}
+
+function parseInviteGenerateResult(raw: unknown): InviteGenerateResult {
+  return inviteGenerateSchema.parse(raw);
+}
+
 export const __apiTestables = {
   parseSyncLoadResult,
   parseStuckSuggestResult,
+  parseInviteListResult,
+  parseInviteGenerateResult,
 };
 
 export async function syncSave(
@@ -392,6 +425,65 @@ export async function aiEvaluateAnswer(
     console.error('AI evaluate error:', msg);
     throw new Error(msg);
   }
+}
+
+export async function getInviteInventory(limit = 40): Promise<InviteListResult> {
+  const token = await getValidAccessToken();
+
+  const doLoad = async (t: string): Promise<InviteListResult> => {
+    let resp: Response;
+    try {
+      const url = new URL(`${BASE_URL}/invites`);
+      url.searchParams.set('limit', String(limit));
+      resp = await fetch(url.toString(), {
+        headers: authHeaders(t),
+      });
+    } catch (e) {
+      throw mapFetchFailureToMessage(e);
+    }
+    if (!resp.ok) {
+      const detail = await parseErrorResponse(resp);
+      if (resp.status === 401) {
+        return maybeRefreshAndRetry(doLoad, detail, 1);
+      }
+      throw new Error(detail || 'Failed to load invites');
+    }
+    const json: unknown = await resp.json();
+    return parseInviteListResult(json);
+  };
+
+  return doLoad(token);
+}
+
+export async function generateInvites(payload: {
+  count: number;
+  note?: string;
+}): Promise<InviteGenerateResult> {
+  const token = await getValidAccessToken();
+
+  const doGenerate = async (t: string): Promise<InviteGenerateResult> => {
+    let resp: Response;
+    try {
+      resp = await fetch(`${BASE_URL}/invites/generate`, {
+        method: 'POST',
+        headers: authHeaders(t),
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      throw mapFetchFailureToMessage(e);
+    }
+    if (!resp.ok) {
+      const detail = await parseErrorResponse(resp);
+      if (resp.status === 401) {
+        return maybeRefreshAndRetry(doGenerate, detail, 1);
+      }
+      throw new Error(detail || 'Failed to generate invites');
+    }
+    const json: unknown = await resp.json();
+    return parseInviteGenerateResult(json);
+  };
+
+  return doGenerate(token);
 }
 
 /** 词卡工坊：语体判断 + 按搭配白名单生成例句（口语目标 1 条；若原词偏书面与口语目标不同，再追加 1 条「原词在日常里怎么说」） */
