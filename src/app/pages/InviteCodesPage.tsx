@@ -159,10 +159,6 @@ export function InviteCodesPage() {
     () => invites.filter((invite) => !invite.used_at && !invite.assigned_to),
     [invites],
   );
-  const unusedInvites = useMemo(
-    () => invites.filter((invite) => !invite.used_at),
-    [invites],
-  );
   const selectedUnusedCount = selectedInviteIds.length;
 
   const commitLocalInviteInventory = (nextInvites: InviteItem[]) => {
@@ -410,11 +406,11 @@ export function InviteCodesPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedInviteIds(unusedInvites.map((invite) => invite.id))}
-                  disabled={!unusedInvites.length}
+                  onClick={() => setSelectedInviteIds(availableInvites.map((invite) => invite.id))}
+                  disabled={!availableInvites.length}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  全选未使用
+                  全选可用
                 </button>
                 <button
                   type="button"
@@ -472,7 +468,7 @@ export function InviteCodesPage() {
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div>
-                        <div className="text-sm font-semibold text-amber-800">已选择 {selectedUnusedCount} 个未使用邀请码</div>
+                        <div className="text-sm font-semibold text-amber-800">已选择 {selectedUnusedCount} 个可用邀请码</div>
                         <div className="mt-1 text-xs text-amber-700">一次填写发送对象，就能把这批邀请码一起标记为已发送。</div>
                       </div>
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -517,7 +513,7 @@ export function InviteCodesPage() {
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              {!invite.used_at && (
+                              {available && (
                                 <input
                                   type="checkbox"
                                   checked={selected}
