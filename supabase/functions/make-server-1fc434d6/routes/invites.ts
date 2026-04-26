@@ -5,6 +5,7 @@ type InviteRow = {
   id: string;
   code: string;
   note: string | null;
+  used_by: string | null;
   created_at: string;
   used_at: string | null;
 };
@@ -22,6 +23,8 @@ type InviteViewRow = {
   batch_note: string | null;
   assigned_to: string | null;
   assigned_at: string | null;
+  used_by: string | null;
+  used_by_email: string | null;
   created_at: string;
   used_at: string | null;
 };
@@ -67,14 +70,34 @@ function serializeInviteNote(payload: InviteNotePayload): string | null {
   });
 }
 
-function toInviteViewRow(row: InviteRow): InviteViewRow {
+function toInviteViewRow(row: InviteRow, usedByEmail?: string | null): InviteViewRow {
   const meta = parseInviteNote(row.note);
   return {
     ...row,
     batch_note: meta.batchNote,
     assigned_to: meta.assignedTo,
     assigned_at: meta.assignedAt,
+    used_by_email: usedByEmail || null,
   };
+}
+
+async function attachUsedByEmails(rows: InviteRow[]): Promise<InviteViewRow[]> {
+  const usedByIds = [...new Set(rows.map((row) => row.used_by).filter(Boolean))] as string[];
+  const emailMap = new Map<string, string | null>();
+
+  await Promise.all(
+    usedByIds.map(async (userId) => {
+      try {
+        const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+        if (error) throw error;
+        emailMap.set(userId, data.user?.email ?? null);
+      } catch {
+        emailMap.set(userId, null);
+      }
+    }),
+  );
+
+  return rows.map((row) => toInviteViewRow(row, row.used_by ? emailMap.get(row.used_by) ?? null : null));
 }
 
 async function requireInviteAdmin(c: any) {
@@ -149,7 +172,7 @@ async function insertInviteBatch(count: number, note: string | null): Promise<In
     const { data, error } = await supabaseAdmin
       .from("invites")
       .insert(rows)
-      .select("id, code, note, created_at, used_at");
+      .select("id, code, note, used_by, created_at, used_at");
 
     if (!error) {
       return (data || []) as InviteRow[];
@@ -179,7 +202,7 @@ export function registerInviteRoutes(app: Hono) {
     }] = await Promise.all([
       supabaseAdmin
         .from("invites")
-        .select("id, code, note, created_at, used_at")
+        .select("id, code, note, used_by, created_at, used_at")
         .order("created_at", { ascending: false })
         .limit(limit),
       supabaseAdmin
@@ -196,7 +219,7 @@ export function registerInviteRoutes(app: Hono) {
     if (unusedError) throw unusedError;
     if (usedError) throw usedError;
 
-    const inviteRows = ((invites || []) as InviteRow[]).map(toInviteViewRow);
+    const inviteRows = await attachUsedByEmails((invites || []) as InviteRow[]);
     const totalAssigned = inviteRows.filter((invite) => !invite.used_at && invite.assigned_to).length;
     const totalAvailable = inviteRows.filter((invite) => !invite.used_at && !invite.assigned_to).length;
 
@@ -224,7 +247,7 @@ export function registerInviteRoutes(app: Hono) {
     const invites = await insertInviteBatch(count, note);
 
     return c.json({
-      invites: invites.map(toInviteViewRow),
+      invites: await attachUsedByEmails(invites),
       generatedCount: invites.length,
     });
   });
@@ -243,7 +266,7 @@ export function registerInviteRoutes(app: Hono) {
 
     const { data: existingInvite, error: existingError } = await supabaseAdmin
       .from("invites")
-      .select("id, code, note, created_at, used_at")
+      .select("id, code, note, used_by, created_at, used_at")
       .eq("id", inviteId)
       .maybeSingle();
 
@@ -266,7 +289,7 @@ export function registerInviteRoutes(app: Hono) {
       .from("invites")
       .update({ note: nextNote })
       .eq("id", inviteId)
-      .select("id, code, note, created_at, used_at")
+      .select("id, code, note, used_by, created_at, used_at")
       .maybeSingle();
 
     if (updateError) throw updateError;
@@ -275,7 +298,7 @@ export function registerInviteRoutes(app: Hono) {
     }
 
     return c.json({
-      invite: toInviteViewRow(updatedInvite as InviteRow),
+      invite: (await attachUsedByEmails([updatedInvite as InviteRow]))[0],
     });
   });
 }

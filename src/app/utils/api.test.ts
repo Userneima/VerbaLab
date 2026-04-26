@@ -44,6 +44,8 @@ describe('api sync parsing', () => {
           batch_note: null,
           assigned_to: 'Alice',
           assigned_at: '2026-04-26T08:00:00.000Z',
+          used_by: 'user-1',
+          used_by_email: 'alice@example.com',
           created_at: '2026-04-26T00:00:00.000Z',
           used_at: null,
         },
@@ -56,6 +58,7 @@ describe('api sync parsing', () => {
 
     expect(parsed.invites[0].code).toBe('VERBA-ABCD-EFGH-JKLM');
     expect(parsed.invites[0].assigned_to).toBe('Alice');
+    expect(parsed.invites[0].used_by_email).toBe('alice@example.com');
     expect(parsed.invites[0].used_at).toBeNull();
     expect(parsed.totalAssigned).toBe(1);
     expect(parsed.totalUnused).toBe(1);

@@ -378,6 +378,7 @@ export function InviteCodesPage() {
                             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-500">
                               <span>创建于 {formatTime(invite.created_at)}</span>
                               <span>使用于 {formatTime(invite.used_at)}</span>
+                              {invite.used_by_email && <span>已绑定账号：{invite.used_by_email}</span>}
                               {invite.assigned_to && <span>已发给：{invite.assigned_to}</span>}
                               {invite.assigned_at && <span>发送于 {formatTime(invite.assigned_at)}</span>}
                               {invite.batch_note && <span>备注：{invite.batch_note}</span>}

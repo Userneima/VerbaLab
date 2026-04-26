@@ -205,6 +205,8 @@ const inviteItemSchema = z.object({
   batch_note: z.string().nullable().optional(),
   assigned_to: z.string().nullable().optional(),
   assigned_at: z.string().nullable().optional(),
+  used_by: z.string().nullable().optional(),
+  used_by_email: z.string().nullable().optional(),
   created_at: z.string(),
   used_at: z.string().nullable().optional(),
 });
