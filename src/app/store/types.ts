@@ -54,6 +54,7 @@ export interface StuckPointEntry {
   chineseThought: string;
   englishAttempt: string;
   aiSuggestion: string;
+  recommendedExpression?: string;
   resolved: boolean;
   sourceMode?: 'test' | 'field' | 'free';
   contextCollocation?: string;

@@ -177,7 +177,7 @@ export function registerCoreAiRoutes(app: Hono) {
         (corpusContext || "(empty)") +
         "\n\nAvailable verb collocations:\n" +
         (verbContext || "(none provided)") +
-        "\n\nRespond ONLY with valid JSON (no markdown):\n{\n  \"type\": \"corpus\" | \"verb\" | \"paraphrase\",\n  \"suggestion\": \"A short mixed Chinese/English summary for quick display. Keep it concise.\",\n  \"guidanceZh\": \"Chinese guidance explaining the most natural way to express the idea and what wording to prioritize.\",\n  \"examples\": [\n    {\n      \"sentence\": \"One natural English sentence\",\n      \"chinese\": \"Natural Chinese translation\",\n      \"noteZh\": \"Why this sentence works or when to use it\"\n    }\n  ]\n}\n\nRules:\n- Always return 2 or 3 example sentences.\n- Example sentences must be natural, everyday usable English.\n- guidanceZh must be concise, practical, and directly usable.\n- suggestion should be a short summary, not a long paragraph.\n- Examples should help the learner either say it directly or adapt it with small edits.\n- Prefer simple, speakable English over fancy vocabulary.";
+        "\n\nRespond ONLY with valid JSON (no markdown):\n{\n  \"type\": \"corpus\" | \"verb\" | \"paraphrase\",\n  \"suggestion\": \"A short mixed Chinese/English summary for quick display. Keep it concise.\",\n  \"recommendedExpression\": \"A short English phrase (2-5 words) the learner should remember, such as get an offer / feel under pressure / keep in touch.\",\n  \"guidanceZh\": \"Chinese guidance explaining the most natural way to express the idea and what wording to prioritize.\",\n  \"examples\": [\n    {\n      \"sentence\": \"One natural English sentence\",\n      \"chinese\": \"Natural Chinese translation\",\n      \"noteZh\": \"Why this sentence works or when to use it\"\n    }\n  ]\n}\n\nRules:\n- Always return recommendedExpression when possible.\n- recommendedExpression should be the core expression the learner should remember, not a full sentence.\n- Always return 2 or 3 example sentences.\n- Example sentences must be natural, everyday usable English.\n- guidanceZh must be concise, practical, and directly usable.\n- suggestion should be a short summary, not a long paragraph.\n- Examples should help the learner either say it directly or adapt it with small edits.\n- Prefer simple, speakable English over fancy vocabulary.";
 
       const result = await callDeepSeek(
         [
@@ -214,6 +214,7 @@ export function registerCoreAiRoutes(app: Hono) {
       return c.json({
         type: parsed.type === "corpus" || parsed.type === "verb" ? parsed.type : "paraphrase",
         suggestion: String(parsed.suggestion || parsed.guidanceZh || "").trim(),
+        recommendedExpression: String(parsed.recommendedExpression || "").trim() || undefined,
         guidanceZh: String(parsed.guidanceZh || "").trim() || undefined,
         examples,
       });

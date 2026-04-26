@@ -191,6 +191,7 @@ const stuckSuggestExampleSchema = z.object({
 const stuckSuggestSchema = z.object({
   type: z.enum(['corpus', 'verb', 'paraphrase']).default('paraphrase'),
   suggestion: z.string().default(''),
+  recommendedExpression: z.string().trim().optional(),
   guidanceZh: z.string().trim().optional(),
   examples: z.array(stuckSuggestExampleSchema).default([]),
 });
@@ -211,6 +212,7 @@ function parseStuckSuggestResult(raw: unknown): StuckSuggestResult {
   return {
     type: value.type,
     suggestion: value.suggestion.trim(),
+    recommendedExpression: value.recommendedExpression?.trim() || undefined,
     guidanceZh: value.guidanceZh?.trim() || undefined,
     examples: value.examples.map((example) => ({
       sentence: example.sentence.trim(),

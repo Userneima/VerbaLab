@@ -72,7 +72,7 @@ export function getStuckPointDisplay(entry: StuckPointEntry): StuckPointDisplay 
           ? '自由表达'
           : undefined;
 
-  const fromAi = extractTitleEnglishFromAiSuggestion(entry.aiSuggestion);
+  const fromAi = entry.recommendedExpression?.trim() || extractTitleEnglishFromAiSuggestion(entry.aiSuggestion);
   const attempt = entry.englishAttempt?.trim();
 
   const colloc = entry.contextCollocation?.trim();
