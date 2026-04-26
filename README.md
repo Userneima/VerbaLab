@@ -1,62 +1,73 @@
+# VerbaLab
 
-  # 核心动词学习系统
+VerbaLab 是一个 local-first 的英语输出训练 Web App，核心围绕实验室、词卡、实战仓、错题库、语料库和卡壳点沉淀，帮助中文英语学习者把“知道意思”转成“能自然说出来”。
 
-  This is a code bundle for 核心动词学习系统. The original project is available at https://www.figma.com/design/nb1koBsEHzrPo4tDldNBpY/%E6%A0%B8%E5%BF%83%E5%8A%A8%E8%AF%8D%E5%AD%A6%E4%B9%A0%E7%B3%BB%E7%BB%9F.
+## AI / Contributor Entry
 
-  ## Running the code
+接手项目时不要从全仓扫描开始。优先阅读：
 
-  Run `npm i` to install the dependencies.
+1. `AGENTS.md`
+2. `docs/CONTEXT_INDEX.md`
+3. `docs/ai-handoff/README.md`
 
-  Run `npm run dev` to start the development server.
+`docs/CONTEXT_INDEX.md` 会告诉你当前可信入口、哪些大文件不要整读、哪些归档或生成物不应优先进入上下文。
 
-### 一键启动脚本
+## Development
 
-项目根目录下提供了一个 `open-elis.ps1` 脚本，用于在 Windows 桌面上创建“单击即打开”的快捷方式。它会：
-
-1. 读取 `.env` 中的配置（如端口、APP_URL、NODE_ENV）并设置环境变量。
-2. 如果没有运行中的服务器则执行 `npm run start`（会根据 `NODE_ENV` 选择开发或预览模式）。
-3. 最后在默认浏览器中打开相应的 URL。
-
-脚本路径可拷贝到桌面，并在桌面上新建快捷方式指向该脚本，或者直接右键“发送到 -> 桌面快捷方式”。
-
-脚本会在第一次运行时自动在当前用户桌面生成名为 “核心动词学习系统.lnk” 的快捷方式，无需额外参数。如果你想手动重建或在其他用户下创建，可以运行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File open-elis.ps1 -InstallShortcut
+```bash
+npm i
+npm run dev
 ```
 
-快捷方式指向脚本本身，双击即可启动服务并打开应用。
+常用验证命令：
 
+```bash
+npm run typecheck
+npm run test
+npm run build
+```
 
-（`.env.example` 文件提供默认值，复制为 `.env` 并根据需要修改即可。）
+GitHub Actions 会执行上述前端检查，并对当前 Supabase Edge Function 入口运行：
 
-### Supabase Edge 函数（词卡工坊 / 同步等）
+```bash
+deno check supabase/functions/make-server-1fc434d6/index.ts
+```
 
-前端会请求 `https://<project>.supabase.co/functions/v1/make-server-1fc434d6/...`。
+## Supabase Edge Function
 
-- 若**词卡工坊**报 **404**，说明线上函数仍是旧版本或未部署。
-- 若报错 **`questions array is required`**，同样是线上 Edge 函数未更新到当前仓库版本（旧接口仍要求雅思题数组）；请重新部署同一函数。
+当前真实 Edge Function 入口：
+
+```text
+supabase/functions/make-server-1fc434d6/index.ts
+```
+
+前端请求：
+
+```text
+https://<project>.supabase.co/functions/v1/make-server-1fc434d6/...
+```
 
 部署命令：
 
 ```bash
 npx supabase login
-npx supabase functions deploy make-server-1fc434d6 --project-ref <你的 Supabase Project ID>
+npx supabase functions deploy make-server-1fc434d6 --project-ref <Supabase Project ID> --use-api
 ```
 
-`Project ID` 与 `utils/supabase/info.tsx` 里的 `VITE_SUPABASE_PROJECT_ID` 一致。部署后需在 Supabase 项目环境变量中配置 `DEEPSEEK_API_KEY`（以及语音等已有变量）。
+当前主项目 ref：
 
-### 密钥与安全
-
-- **Service role**（如 `SUPABASE_SERVICE_ROLE_KEY`）仅放在 **Supabase Edge / 服务端密钥**，不要写入前端 `.env` 或任何 `VITE_*` 变量；前端只用 **anon** + 用户登录后的 **access token**。
-- 修改同步或 AI 相关 Edge 逻辑后，请执行一次 `npx supabase functions deploy ...`（见上文），与前端保持同期发布。
-
-### 本地脚本（CI 对齐）
-
-```bash
-npm run typecheck   # TypeScript
-npm run test        # Vitest
-npm run build       # 生产构建
+```text
+ztlrrovudbkmqqjaqhfu
 ```
 
-GitHub Actions 会对上述命令及 `deno check supabase/functions/make-server-1fc434d6/index.ts` 做校验。
+更多路由边界看 `docs/edge-function-route-map.md`。
+
+## Security
+
+- `SUPABASE_SERVICE_ROLE_KEY` 只允许放在 Supabase Edge Function 服务端环境变量里。
+- 前端只能使用 anon key 和登录后的 user access token。
+- 修改 CORS、Auth、Sync、AI schema 或管理员后台时，先看 `AGENTS.md` 和对应 docs。
+
+## Local Launch Script
+
+仓库仍保留 `open-elis.ps1`，用于本地桌面快捷方式启动。它不是产品架构入口；调试和开发优先使用 `npm run dev`。
