@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { newVocabCardId } from '../../utils/ids';
+import { trackProductEvent } from '../../utils/api';
 import {
   computeAfterRemembered,
   computeAfterStruggled,
@@ -60,6 +61,17 @@ export function useVocabCardsDomain(
         reviewStage: 0,
       };
       setVocabCards((prev) => [newCard, ...prev]);
+      trackProductEvent({
+        eventName: 'vocab_card_saved',
+        surface: 'word_lab',
+        objectType: 'vocab_card',
+        objectId: newCard.id,
+        metadata: {
+          itemCount: newCard.items.length,
+          tagCount: newCard.tags.length,
+          isCommonInSpokenEnglish: newCard.isCommonInSpokenEnglish,
+        },
+      });
       return newCard;
     },
     [setVocabCards],
@@ -96,6 +108,13 @@ export function useVocabCardsDomain(
           };
         }),
       );
+      trackProductEvent({
+        eventName: 'vocab_card_reviewed',
+        surface: 'vocab_card',
+        objectType: 'vocab_card',
+        objectId: cardId,
+        metadata: { result: 'viewed' },
+      });
     },
     [setVocabCards],
   );
@@ -110,6 +129,13 @@ export function useVocabCardsDomain(
           return { ...card, timestamp: now, lastViewedAt: now, reviewStage, nextDueAt };
         }),
       );
+      trackProductEvent({
+        eventName: 'vocab_card_reviewed',
+        surface: 'vocab_card',
+        objectType: 'vocab_card',
+        objectId: cardId,
+        metadata: { result: 'remembered' },
+      });
     },
     [setVocabCards],
   );
@@ -124,6 +150,13 @@ export function useVocabCardsDomain(
           return { ...card, timestamp: now, lastViewedAt: now, reviewStage, nextDueAt };
         }),
       );
+      trackProductEvent({
+        eventName: 'vocab_card_reviewed',
+        surface: 'vocab_card',
+        objectType: 'vocab_card',
+        objectId: cardId,
+        metadata: { result: 'struggled' },
+      });
     },
     [setVocabCards],
   );

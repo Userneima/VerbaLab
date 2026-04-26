@@ -1,5 +1,5 @@
 import type { Hono } from "npm:hono";
-import { requireAuthUser, supabaseAdmin } from "../platform.ts";
+import { requireAdminUser, supabaseAdmin } from "../platform.ts";
 
 type InviteRow = {
   id: string;
@@ -30,12 +30,6 @@ type InviteViewRow = {
 };
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const INVITE_ADMIN_EMAILS = new Set(["wyc1186164839@gmail.com"]);
-
-function normalizeEmail(email: string | null | undefined): string {
-  return String(email || "").trim().toLowerCase();
-}
-
 function parseInviteNote(note: string | null | undefined): InviteNotePayload {
   const raw = String(note || "").trim();
   if (!raw) {
@@ -111,18 +105,7 @@ async function loadInvitesByIds(inviteIds: string[]): Promise<InviteRow[]> {
 }
 
 async function requireInviteAdmin(c: any) {
-  const auth = await requireAuthUser(c);
-  if (!auth.ok) return auth;
-
-  const email = normalizeEmail(auth.user.email);
-  if (!INVITE_ADMIN_EMAILS.has(email)) {
-    return {
-      ok: false as const,
-      response: c.json({ error: "Forbidden" }, 403),
-    };
-  }
-
-  return auth;
+  return requireAdminUser(c);
 }
 
 function randomBlock(length = 4): string {

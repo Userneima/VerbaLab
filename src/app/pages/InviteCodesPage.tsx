@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { Navigate } from 'react-router';
 import { Copy, Loader2, RefreshCw, Sparkles, Ticket } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import {
@@ -68,7 +69,7 @@ function persistInviteInventory(
   });
 }
 
-export function InviteCodesPage() {
+export function InviteCodesPage({ embedded = false }: { embedded?: boolean }) {
   const { user, loading: authLoading } = useAuth();
   const [invites, setInvites] = useState<InviteItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,6 +89,10 @@ export function InviteCodesPage() {
   const [totalAssigned, setTotalAssigned] = useState(0);
   const [totalUsed, setTotalUsed] = useState(0);
   const canManageInvites = isInviteAdminEmail(user?.email);
+
+  if (!embedded) {
+    return <Navigate to="/admin?tab=invites" replace />;
+  }
 
   const loadInvites = async (options?: { silent?: boolean }) => {
     if (!canManageInvites) {
@@ -263,8 +268,8 @@ export function InviteCodesPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-50">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6">
+    <div className={embedded ? "h-full" : "h-full overflow-y-auto bg-slate-50"}>
+      <div className={embedded ? "flex flex-col gap-6" : "mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6"}>
         {!authLoading && !canManageInvites && (
           <section className="rounded-[28px] border border-amber-200 bg-white p-6 shadow-sm">
             <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-700">

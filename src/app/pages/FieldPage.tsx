@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Zap, AlertTriangle, Send, RefreshCw, Loader2, HelpCircle, X, ChevronRight, CheckCircle2, MessageSquare, Mic, MicOff } from 'lucide-react';
 import { IELTS_QUESTIONS } from '../data/verbData';
 import { getStuckSuggestion } from '../utils/grammarCheck';
+import { trackProductEvent } from '../utils/api';
 import { VERBS } from '../data/verbData';
 import { useStore } from '../store/StoreContext';
 import { useSpeechRecognition } from '../utils/useSpeechRecognition';
@@ -230,15 +231,36 @@ export function FieldPage() {
     }
     setFieldAssistError(null);
     setFieldState('evaluating');
+    trackProductEvent({
+      eventName: 'field_answer_submitted',
+      surface: 'field',
+      objectType: 'field_question',
+      objectId: question.id,
+      metadata: { part: question.part, assistLevel: difficultyAssistLevel },
+    });
 
     try {
       const result = await aiEvaluateAnswer(question.question, answer, question.part);
       setEvaluation(result);
+      trackProductEvent({
+        eventName: 'field_answer_evaluated',
+        surface: 'field',
+        objectType: 'field_question',
+        objectId: question.id,
+        metadata: { part: question.part, score: result.score },
+      });
       setFieldState('done');
     } catch (err) {
       console.error('AI evaluation failed, using local fallback:', err);
       const result = localEvaluateAnswer(answer);
       setEvaluation(result);
+      trackProductEvent({
+        eventName: 'field_answer_evaluated',
+        surface: 'field',
+        objectType: 'field_question',
+        objectId: question.id,
+        metadata: { part: question.part, score: result.score, fallback: true },
+      });
       setFieldState('done');
     }
   }, [answer, difficultyAssist.keySentence, difficultyAssistLevel, fieldTileDone, question]);

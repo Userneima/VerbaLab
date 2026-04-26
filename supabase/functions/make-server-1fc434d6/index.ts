@@ -1,6 +1,7 @@
 import { Hono } from "npm:hono";
 import { applyPlatformMiddleware } from "./platform.ts";
 import { registerCoreAiRoutes } from "./routes/ai-core.ts";
+import { registerAdminRoutes } from "./routes/admin.ts";
 import { registerVocabAiRoutes } from "./routes/ai-vocab.ts";
 import { registerAuthRoutes } from "./routes/auth.ts";
 import { registerInviteRoutes } from "./routes/invites.ts";
@@ -20,6 +21,7 @@ app.get("/make-server-1fc434d6/health", (c) =>
 
 registerAuthRoutes(app);
 registerInviteRoutes(app);
+registerAdminRoutes(app);
 registerSyncRoutes(app);
 registerSpeechRoutes(app);
 registerCoreAiRoutes(app);

@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { newStuckPointId } from '../../utils/ids';
+import { trackProductEvent } from '../../utils/api';
 import type { StuckPointEntry } from '../types';
 
 export function useStuckPointsDomain(
@@ -15,6 +16,16 @@ export function useStuckPointsDomain(
         resolved: false,
       };
       setStuckPoints((prev) => [newEntry, ...prev]);
+      trackProductEvent({
+        eventName: 'stuck_helper_generated',
+        surface: newEntry.sourceMode || 'free',
+        objectType: 'stuck',
+        objectId: newEntry.id,
+        metadata: {
+          sourceMode: newEntry.sourceMode,
+          hasRecommendedExpression: Boolean(newEntry.recommendedExpression),
+        },
+      });
       return newEntry;
     },
     [setStuckPoints],

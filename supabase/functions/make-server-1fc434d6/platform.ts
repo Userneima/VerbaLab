@@ -15,6 +15,7 @@ type AllowedOriginsConfig = {
 };
 
 export const INVITE_INVALID_ERROR = "邀请码无效或已使用";
+export const ADMIN_EMAILS = new Set(["wyc1186164839@gmail.com"]);
 
 export function getClientIp(c: any): string {
   const xff = c.req.header("x-forwarded-for");
@@ -186,6 +187,28 @@ export async function requireAuthUser(
     };
   }
   return { ok: true, user };
+}
+
+function normalizeEmail(email: string | null | undefined): string {
+  return String(email || "").trim().toLowerCase();
+}
+
+export function isAdminEmail(email: string | null | undefined): boolean {
+  return ADMIN_EMAILS.has(normalizeEmail(email));
+}
+
+export async function requireAdminUser(
+  c: any,
+): Promise<{ ok: true; user: { id: string; email: string | null } } | { ok: false; response: Response }> {
+  const auth = await requireAuthUser(c);
+  if (!auth.ok) return auth;
+  if (!isAdminEmail(auth.user.email)) {
+    return {
+      ok: false,
+      response: c.json({ error: "Forbidden" }, 403),
+    };
+  }
+  return auth;
 }
 
 export function normalizeInviteCode(value: unknown): string {

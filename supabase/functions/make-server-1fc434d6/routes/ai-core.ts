@@ -1,5 +1,5 @@
 import type { Hono } from "npm:hono";
-import { callDeepSeek, parseJsonFromModel } from "./ai-shared.ts";
+import { aiUsageBlockedResponse, callTrackedDeepSeek, parseJsonFromModel } from "./ai-shared.ts";
 
 export function registerCoreAiRoutes(app: Hono) {
   const grammarCheckHandler = async (c: any) => {
@@ -19,13 +19,17 @@ export function registerCoreAiRoutes(app: Hono) {
         collocation +
         "\" with a different phrase that means something similar; that would break the exercise.\n- Only flag the collocation if it is wrong (wrong preposition, wrong verb form, ungrammatical chunk, wrong part of speech, etc.).\n- English sentences should start with a capital letter and end with . ! or ? — flag missing/wrong English closing punctuation if relevant.\n- First person pronoun must be uppercase \"I\"\n- If the sentence is too short (fewer than 4 words), flag it as incomplete\n- Descriptions and hints must be in Chinese\n- correctedSentence must be natural English; do not include Chinese in correctedSentence\n- Be strict on real grammar errors but fair on the assigned collocation choice";
 
-      const result = await callDeepSeek([
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: `Please check this sentence: "${sentence}"\nTarget collocation: "${collocation}"`,
-        },
-      ]);
+      const result = await callTrackedDeepSeek(
+        c,
+        "grammar_check",
+        [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `Please check this sentence: "${sentence}"\nTarget collocation: "${collocation}"`,
+          },
+        ],
+      );
 
       let parsed: Record<string, unknown>;
       try {
@@ -66,7 +70,9 @@ export function registerCoreAiRoutes(app: Hono) {
             "- Do not explain.\n" +
             "- Do not output multiple options.\n" +
             "- correctedSentence must be natural English only.";
-          const repairResult = await callDeepSeek(
+          const repairResult = await callTrackedDeepSeek(
+            c,
+            "grammar_repair",
             [
               { role: "system", content: repairPrompt },
               {
@@ -92,6 +98,8 @@ export function registerCoreAiRoutes(app: Hono) {
 
       return c.json({ isCorrect, correctedSentence, errors, overallHint });
     } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
       console.log(`Error in grammar check: ${err}`);
       return c.json({ error: `Grammar check failed: ${err}` }, 500);
     }
@@ -138,7 +146,9 @@ export function registerCoreAiRoutes(app: Hono) {
         m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string"
       ).slice(-20);
 
-      const result = await callDeepSeek(
+      const result = await callTrackedDeepSeek(
+        c,
+        "grammar_tutor",
         [{ role: "system", content: systemPrompt }, ...validMsgs],
         0.4,
       );
@@ -149,6 +159,8 @@ export function registerCoreAiRoutes(app: Hono) {
       }
       return c.json({ reply });
     } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
       console.log(`Error in grammar tutor: ${err}`);
       return c.json({ error: `Grammar tutor failed: ${err}` }, 500);
     }
@@ -179,7 +191,9 @@ export function registerCoreAiRoutes(app: Hono) {
         (verbContext || "(none provided)") +
         "\n\nRespond ONLY with valid JSON (no markdown):\n{\n  \"type\": \"corpus\" | \"verb\" | \"paraphrase\",\n  \"suggestion\": \"A short mixed Chinese/English summary for quick display. Keep it concise.\",\n  \"recommendedExpression\": \"A short English phrase (2-5 words) the learner should remember, such as get an offer / feel under pressure / keep in touch.\",\n  \"guidanceZh\": \"Chinese guidance explaining the most natural way to express the idea and what wording to prioritize.\",\n  \"examples\": [\n    {\n      \"sentence\": \"One natural English sentence\",\n      \"chinese\": \"Natural Chinese translation\",\n      \"noteZh\": \"Why this sentence works or when to use it\"\n    }\n  ]\n}\n\nRules:\n- Always return recommendedExpression when possible.\n- recommendedExpression should be the core expression the learner should remember, not a full sentence.\n- Always return 2 or 3 example sentences.\n- Example sentences must be natural, everyday usable English.\n- guidanceZh must be concise, practical, and directly usable.\n- suggestion should be a short summary, not a long paragraph.\n- Examples should help the learner either say it directly or adapt it with small edits.\n- Prefer simple, speakable English over fancy vocabulary.";
 
-      const result = await callDeepSeek(
+      const result = await callTrackedDeepSeek(
+        c,
+        "stuck_suggest",
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: `我想表达：${chineseThought}` },
@@ -219,6 +233,8 @@ export function registerCoreAiRoutes(app: Hono) {
         examples,
       });
     } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
       console.log(`Error in stuck suggestion: ${err}`);
       return c.json({ error: `Stuck suggestion failed: ${err}` }, 500);
     }
@@ -238,7 +254,9 @@ export function registerCoreAiRoutes(app: Hono) {
         "Identify which core verbs (get, take, make, do, have, go, set, keep, give, put, come, see, know, think, find, tell, ask, work, feel, need) were used.\n\n" +
         "Respond ONLY with valid JSON (no markdown):\n{\n  \"score\": 75,\n  \"fluency\": 70,\n  \"grammar\": 80,\n  \"vocabulary\": 75,\n  \"verbsUsed\": [\"get\", \"make\"],\n  \"feedback\": [\n    \"Chinese feedback point 1\",\n    \"Chinese feedback point 2\",\n    \"Chinese feedback point 3\"\n  ]\n}\n\nFeedback should be in Chinese, 3-5 points, specific and actionable. Be encouraging but honest.";
 
-      const result = await callDeepSeek(
+      const result = await callTrackedDeepSeek(
+        c,
+        "evaluate_answer",
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: `IELTS Question: "${question}"\n\nMy answer: "${answer}"` },
@@ -256,6 +274,8 @@ export function registerCoreAiRoutes(app: Hono) {
 
       return c.json(parsed);
     } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
       console.log(`Error in answer evaluation: ${err}`);
       return c.json({ error: `Evaluation failed: ${err}` }, 500);
     }
@@ -269,7 +289,9 @@ export function registerCoreAiRoutes(app: Hono) {
         return c.json({ error: "text required, max 800 chars" }, 400);
       }
 
-      const result = await callDeepSeek(
+      const result = await callTrackedDeepSeek(
+        c,
+        "translate_sentence",
         [
           {
             role: "system",
@@ -288,6 +310,8 @@ export function registerCoreAiRoutes(app: Hono) {
       }
       return c.json({ translation });
     } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
       console.log(`Error in translate-sentence: ${err}`);
       return c.json({ error: `Translation failed: ${err}` }, 500);
     }
@@ -306,7 +330,9 @@ export function registerCoreAiRoutes(app: Hono) {
       const systemPrompt =
         "You are an expert at distinguishing natural native English from Chinglish (Chinese-influenced English). The sentence is grammatically correct but may sound unnatural to native speakers.\n\nRespond ONLY with valid JSON (no markdown):\n{\n  \"isChinglish\": true or false,\n  \"nativeVersion\": \"How a native speaker would say it (only if isChinglish is true)\",\n  \"nativeThinking\": \"One short sentence in Chinese explaining the native speaker's mindset or why they phrase it differently (only if isChinglish is true)\"\n}\n\nIf the sentence is already natural, set isChinglish to false and omit nativeVersion and nativeThinking.";
 
-      const result = await callDeepSeek(
+      const result = await callTrackedDeepSeek(
+        c,
+        "chinglish_check",
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: `Sentence: "${sentence}"\nTarget collocation: "${collocation}"\n\nIs this Chinglish? If yes, give native version and brief thinking in Chinese.` },
@@ -330,6 +356,8 @@ export function registerCoreAiRoutes(app: Hono) {
         nativeThinking: parsed.nativeThinking || "",
       });
     } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
       console.log(`Error in chinglish check: ${err}`);
       return c.json({ isChinglish: false });
     }

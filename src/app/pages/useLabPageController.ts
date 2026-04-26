@@ -9,6 +9,7 @@ import {
   type Verb,
 } from '../data/verbData';
 import { checkGrammar, checkChinglish, getStuckSuggestion, type GrammarError } from '../utils/grammarCheck';
+import { trackProductEvent } from '../utils/api';
 import { aiGrammarTutor } from '../utils/api';
 import { useStore } from '../store/StoreContext';
 import { useSpeechRecognition } from '../utils/useSpeechRecognition';
@@ -204,6 +205,13 @@ export function useLabPageController() {
 
   const handleSubmit = useCallback(async () => {
     if (!userInput.trim()) return;
+    trackProductEvent({
+      eventName: 'lab_attempt_submitted',
+      surface: 'lab',
+      objectType: 'collocation',
+      objectId: currentItem.collocation.id,
+      metadata: { collocationId: currentItem.collocation.id },
+    });
     if (speech.isListening) speech.stopListening();
     setLabStuckOpen(false);
     setStuckSuggestion(null);
@@ -218,6 +226,12 @@ export function useLabPageController() {
       const chinglish = await checkChinglish(trimmed, currentItem.collocation.phrase);
       if (chinglish.isChinglish && (chinglish.nativeVersion || chinglish.nativeThinking)) {
         store.addToCorpus({ verbId: currentItem.verb.id, verb: currentItem.verb.verb, collocationId: currentItem.collocation.id, collocation: currentItem.collocation.phrase, userSentence: trimmed, isCorrect: true, mode: 'test', tags: [currentItem.verb.verb.toLowerCase(), currentItem.collocation.phrase.toLowerCase()], nativeVersion: chinglish.nativeVersion, nativeThinking: chinglish.nativeThinking, isChinglish: true });
+        trackProductEvent({
+          eventName: 'lab_success_saved_to_corpus',
+          surface: 'lab',
+          objectType: 'collocation',
+          objectId: currentItem.collocation.id,
+        });
         store.markAsLearned(currentItem.collocation.id);
         setOverallHint('');
         setNativeSuggestion({ sentence: (chinglish.nativeVersion || '').trim(), thinking: chinglish.nativeThinking?.trim() || undefined, savedToCorpus: false });
@@ -225,6 +239,12 @@ export function useLabPageController() {
       } else {
         setTestState('correct');
         store.addToCorpus({ verbId: currentItem.verb.id, verb: currentItem.verb.verb, collocationId: currentItem.collocation.id, collocation: currentItem.collocation.phrase, userSentence: trimmed, isCorrect: true, mode: 'test', tags: [currentItem.verb.verb.toLowerCase(), currentItem.collocation.phrase.toLowerCase()] });
+        trackProductEvent({
+          eventName: 'lab_success_saved_to_corpus',
+          surface: 'lab',
+          objectType: 'collocation',
+          objectId: currentItem.collocation.id,
+        });
         store.markAsLearned(currentItem.collocation.id);
       }
     } else {
@@ -246,6 +266,13 @@ export function useLabPageController() {
         hint: '',
         grammarPoints: result.errors.map(e => e.grammarPoint),
         reviewCueZh: contextStr.trim() || undefined,
+      });
+      trackProductEvent({
+        eventName: 'lab_error_saved',
+        surface: 'lab',
+        objectType: 'collocation',
+        objectId: currentItem.collocation.id,
+        metadata: { errorCount: result.errors.length },
       });
     }
   }, [userInput, currentItem, store, speech, contextStr]);

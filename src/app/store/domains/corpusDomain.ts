@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { newCorpusEntryId } from '../../utils/ids';
 import { corpusSentenceDedupeKey } from '../../utils/corpusDedupe';
+import { trackProductEvent } from '../../utils/api';
 import type { CorpusEntry } from '../types';
 
 export function useCorpusDomain(
@@ -13,7 +14,7 @@ export function useCorpusDomain(
       const now = new Date().toISOString();
       const incomingKey = corpusSentenceDedupeKey(entry.collocationId, entry.userSentence);
 
-      let resultEntry: CorpusEntry;
+      let resultEntry: CorpusEntry | undefined;
 
       setCorpus((prev) => {
         const dupId = corpusDedupeIndexRef.current.get(incomingKey);
@@ -56,6 +57,20 @@ export function useCorpusDomain(
         };
         return [resultEntry, ...prev];
       });
+
+      if (resultEntry) {
+        trackProductEvent({
+          eventName: 'corpus_entry_created',
+          surface: resultEntry.mode,
+          objectType: 'corpus',
+          objectId: resultEntry.id,
+          metadata: {
+            mode: resultEntry.mode,
+            collocationId: resultEntry.collocationId,
+            isCorrect: resultEntry.isCorrect,
+          },
+        });
+      }
 
       return resultEntry!;
     },

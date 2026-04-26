@@ -3,6 +3,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { newErrorBankEntryId } from '../../utils/ids';
 import { normalizeErrorSentenceForDedupe } from '../../utils/errorBankDedupe';
 import { clearErrorReviewProduceDraft } from '../../utils/errorReviewDraftStorage';
+import { trackProductEvent } from '../../utils/api';
 import {
   ERROR_REVIEW_RESET_HOURS,
   ERROR_REVIEW_STAGE_HOURS,
@@ -33,7 +34,7 @@ export function useErrorBankDomain(
       const incomingNorm = normalizeErrorSentenceForDedupe(entry.originalSentence);
       const incomingKey = `${entry.collocationId}\0${incomingNorm}`;
 
-      let resultEntry: ErrorBankEntry;
+      let resultEntry: ErrorBankEntry | undefined;
 
       setErrorBank((prev) => {
         const dupId = errorDedupeIndexRef.current.get(incomingKey);
@@ -88,6 +89,20 @@ export function useErrorBankDomain(
         return [resultEntry, ...prev];
       });
 
+      if (resultEntry) {
+        trackProductEvent({
+          eventName: 'error_created',
+          surface: entry.errorCategory ?? 'grammar',
+          objectType: 'error',
+          objectId: resultEntry.id,
+          metadata: {
+            errorCategory: resultEntry.errorCategory,
+            collocationId: resultEntry.collocationId,
+            grammarPointCount: resultEntry.grammarPoints.length,
+          },
+        });
+      }
+
       return resultEntry!;
     },
     [errorDedupeIndexRef, setErrorBank],
@@ -117,6 +132,12 @@ export function useErrorBankDomain(
           entry.id === errorId ? { ...entry, resolved: true, reviewReproClozeDone: false } : entry,
         ),
       );
+      trackProductEvent({
+        eventName: 'error_resolved',
+        surface: 'error_bank',
+        objectType: 'error',
+        objectId: errorId,
+      });
     },
     [setErrorBank],
   );

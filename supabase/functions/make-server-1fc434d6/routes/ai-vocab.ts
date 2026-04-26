@@ -1,5 +1,13 @@
 import type { Hono } from "npm:hono";
-import { callDeepSeek, parseJsonFromModel } from "./ai-shared.ts";
+import {
+  aiUsageBlockedResponse,
+  callDeepSeek,
+  callTrackedDeepSeek,
+  isAiUsageBlockedError,
+  parseJsonFromModel,
+} from "./ai-shared.ts";
+
+type DeepSeekCaller = typeof callDeepSeek;
 
 const ALLOWED_VOCAB_TAGS = [
   "#职场",
@@ -587,6 +595,7 @@ async function enrichRegisterGuide(input: {
   currentNoteZh?: string;
   currentGuide?: RegisterGuide;
   attempt?: number;
+  callDeepSeekFn?: DeepSeekCaller;
 }): Promise<{
   noteZh: string;
   spokenAlternatives: string[];
@@ -668,7 +677,8 @@ async function enrichRegisterGuide(input: {
     "\nReturn JSON only.";
 
   try {
-    const result = await callDeepSeek(
+    const runDeepSeek = input.callDeepSeekFn ?? callDeepSeek;
+    const result = await runDeepSeek(
       [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
       0.2,
       1200,
@@ -686,6 +696,7 @@ async function enrichRegisterGuide(input: {
       registerGuide,
     };
   } catch (e) {
+    if (isAiUsageBlockedError(e)) throw e;
     console.log(`enrichRegisterGuide failed: ${e}`);
     return {
       noteZh: "",
@@ -700,6 +711,7 @@ async function recoverSpokenRegisterAfterParseFailure(input: {
   sense: string;
   model: string;
   rawResult: string;
+  callDeepSeekFn?: DeepSeekCaller;
 }): Promise<{
   isCommonInSpokenEnglish: boolean;
   phraseForExample: string;
@@ -735,6 +747,7 @@ async function recoverSpokenRegisterAfterParseFailure(input: {
       currentNoteZh: finalNoteZh,
       currentGuide: finalRegisterGuide,
       attempt,
+      callDeepSeekFn: input.callDeepSeekFn,
     });
     if (enriched.noteZh.trim()) finalNoteZh = enriched.noteZh.trim();
     if (enriched.spokenAlternatives.length) {
@@ -771,6 +784,7 @@ async function assessSpokenRegister(
   headword: string,
   sense: string,
   model: string,
+  callDeepSeekFn: DeepSeekCaller = callDeepSeek,
 ): Promise<{
   isCommonInSpokenEnglish: boolean;
   phraseForExample: string;
@@ -836,7 +850,7 @@ async function assessSpokenRegister(
     (senseFocusHint ? "\nSense focus guidance: " + senseFocusHint : "") +
     "\nReturn JSON only.";
 
-  const result = await callDeepSeek(
+  const result = await callDeepSeekFn(
     [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }],
     0.2,
     768,
@@ -894,6 +908,7 @@ async function assessSpokenRegister(
         currentNoteZh: finalNoteZh,
         currentGuide: finalRegisterGuide,
         attempt,
+        callDeepSeekFn,
       });
       if (enriched.noteZh.trim()) finalNoteZh = enriched.noteZh.trim();
       if (enriched.spokenAlternatives.length) {
@@ -920,6 +935,7 @@ async function assessSpokenRegister(
       sense,
       model,
       rawResult: result,
+      callDeepSeekFn,
     });
   }
 }
@@ -929,6 +945,7 @@ async function generateOriginalDailyFallbackItem(
   sense: string,
   colLines: string,
   model: string,
+  callDeepSeekFn: DeepSeekCaller = callDeepSeek,
 ): Promise<{
   sentence: string;
   collocationsUsed: string[];
@@ -972,7 +989,7 @@ async function generateOriginalDailyFallbackItem(
     "\nReturn JSON only.";
 
   try {
-    const result = await callDeepSeek(
+    const result = await callDeepSeekFn(
       [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }],
       0.35,
       1024,
@@ -994,12 +1011,17 @@ async function generateOriginalDailyFallbackItem(
       chinese: String(parsed?.chinese || "").trim() || undefined,
     };
   } catch (e) {
+    if (isAiUsageBlockedError(e)) throw e;
     console.log(`generateOriginalDailyFallbackItem failed: ${e}`);
     return null;
   }
 }
 
 export function registerVocabAiRoutes(app: Hono) {
+  const makeTrackedCaller = (c: any, feature: string): DeepSeekCaller =>
+    (messages, temperature, maxTokens, model) =>
+      callTrackedDeepSeek(c, feature, messages, temperature, maxTokens, model);
+
   const vocabCardHandler = async (c: any) => {
     try {
       const body = await c.req.json();
@@ -1011,7 +1033,12 @@ export function registerVocabAiRoutes(app: Hono) {
       if (collocations.length < 1) return c.json({ error: "collocations array is required" }, 400);
 
       const vocabModel = Deno.env.get("DEEPSEEK_VOCAB_MODEL") || Deno.env.get("DEEPSEEK_MODEL") || "deepseek-chat";
-      const reg = await assessSpokenRegister(headword, sense, vocabModel);
+      const reg = await assessSpokenRegister(
+        headword,
+        sense,
+        vocabModel,
+        makeTrackedCaller(c, "vocab_register_assess"),
+      );
       const phraseForSentence = reg.phraseForExample;
       const senseFocusHint = buildSenseFocusHint({
         headword,
@@ -1081,7 +1108,9 @@ export function registerVocabAiRoutes(app: Hono) {
         (needOriginalDailySentence ? "\nReturn two items: [0] spoken target sentence, [1] original wording in daily use." : "") +
         "\nGenerate JSON as specified.";
 
-      const result = await callDeepSeek(
+      const result = await callTrackedDeepSeek(
+        c,
+        "vocab_card",
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: userContent },
@@ -1120,7 +1149,13 @@ export function registerVocabAiRoutes(app: Hono) {
       }
 
       if (needOriginalDailySentence && itemsOut.length < 2) {
-        const fb = await generateOriginalDailyFallbackItem(headword, sense, colLines, vocabModel);
+        const fb = await generateOriginalDailyFallbackItem(
+          headword,
+          sense,
+          colLines,
+          vocabModel,
+          makeTrackedCaller(c, "vocab_original_daily"),
+        );
         if (fb) itemsOut.push(fb);
       }
 
@@ -1136,6 +1171,8 @@ export function registerVocabAiRoutes(app: Hono) {
         items: itemsOut,
       });
     } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
       console.log(`Error in vocab-card: ${err}`);
       return c.json({ error: `Vocab card generation failed: ${err}` }, 500);
     }
@@ -1157,10 +1194,18 @@ export function registerVocabAiRoutes(app: Hono) {
         .map((x: any) => (typeof x === "string" ? `- ${x}` : `- ${x.phrase || x} (${x.meaning || ""}) [verb: ${x.verb || ""}]`))
         .join("\n");
 
-      const item = await generateOriginalDailyFallbackItem(headword, sense, colLines, vocabModel);
+      const item = await generateOriginalDailyFallbackItem(
+        headword,
+        sense,
+        colLines,
+        vocabModel,
+        makeTrackedCaller(c, "vocab_original_daily"),
+      );
       if (!item) return c.json({ error: "Failed to generate original-daily sentence" }, 500);
       return c.json({ item });
     } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
       console.log(`Error in vocab-card-original-daily: ${err}`);
       return c.json({ error: `Vocab card original-daily failed: ${err}` }, 500);
     }
@@ -1175,7 +1220,12 @@ export function registerVocabAiRoutes(app: Hono) {
       if (!headword) return c.json({ error: "headword is required" }, 400);
 
       const vocabModel = Deno.env.get("DEEPSEEK_VOCAB_MODEL") || Deno.env.get("DEEPSEEK_MODEL") || "deepseek-chat";
-      const reg = await assessSpokenRegister(headword, sense, vocabModel);
+      const reg = await assessSpokenRegister(
+        headword,
+        sense,
+        vocabModel,
+        makeTrackedCaller(c, "vocab_register_guide"),
+      );
 
       return c.json({
         headword,
@@ -1188,6 +1238,8 @@ export function registerVocabAiRoutes(app: Hono) {
         registerGuide: reg.registerGuide,
       });
     } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
       console.log(`Error in vocab-card-register-guide: ${err}`);
       return c.json({ error: `Vocab card register-guide failed: ${err}` }, 500);
     }

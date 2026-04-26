@@ -3,6 +3,7 @@ import { LifeBuoy, Search, Filter, CheckCircle2, MessageSquare, RotateCcw, Spark
 import { useStore } from '../store/StoreContext';
 import { getStuckPointDisplay } from '../utils/stuckPointDisplay';
 import { getStuckSuggestion, type StuckSuggestionResult } from '../utils/grammarCheck';
+import { trackProductEvent } from '../utils/api';
 import { VERBS } from '../data/verbData';
 import { ExpressionHelperPanel } from '../components/stuck/ExpressionHelperPanel';
 
@@ -171,6 +172,13 @@ export function StuckPointsPage() {
     if (latestHelperEntryId) {
       store.resolveStuck(latestHelperEntryId);
     }
+    trackProductEvent({
+      eventName: 'stuck_example_saved_to_corpus',
+      surface: 'stuck',
+      objectType: 'stuck',
+      objectId: latestHelperEntryId || undefined,
+      metadata: { hasTranslation: Boolean(translation?.trim()) },
+    });
     setSaveMessage('已收进语料库');
   };
 

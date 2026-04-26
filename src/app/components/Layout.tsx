@@ -346,12 +346,12 @@ function LayoutInner() {
                     type="button"
                     onClick={() => {
                       setShowUserMenu(false);
-                      navigate('/invites');
+                      navigate('/admin');
                     }}
                     className="w-full flex items-center gap-2 px-4 py-3 text-slate-200 hover:bg-slate-700/80 transition-colors text-sm border-b border-slate-700"
                   >
                     <Ticket size={15} className="text-amber-400" />
-                    邀请码管理
+                    管理员后台
                   </button>
                 )}
                 <button
