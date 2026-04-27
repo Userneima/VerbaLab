@@ -84,6 +84,7 @@ npm run build
 - [src/app/pages/FieldPage.tsx](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/pages/FieldPage.tsx): longer-form output practice
 - [src/app/pages/FoundryPage.tsx](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/pages/FoundryPage.tsx): collocation/foundry workflow
 - [src/app/pages/StuckPointsPage.tsx](/Users/yuchao/Documents/GitHub/VerbaLab/src/app/pages/StuckPointsPage.tsx): stuck-point review
+- [apps/weapp](/Users/yuchao/Documents/GitHub/VerbaLab/apps/weapp): WeChat Mini Program scaffold; keep it independent from the Vite web runtime
 
 ## Shared Practice Utilities
 
@@ -169,6 +170,7 @@ src/app/components/ui/         UI primitives
 src/app/store/                 App state, auth, sync
 src/app/utils/                 Business logic, review logic, API helpers
 src/app/data/                  Built-in learning content
+apps/weapp/                    WeChat Mini Program scaffold and future mini-program client
 supabase/functions/            Edge Functions and backend helpers
 ```
 

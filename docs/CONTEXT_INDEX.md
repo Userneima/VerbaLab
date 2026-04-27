@@ -20,6 +20,7 @@
 - 前端 API 分区：`src/app/utils/api/admin.ts`、`src/app/utils/api/ai.ts`、`src/app/utils/api/sync.ts`、`src/app/utils/api/invites.ts`
 - Supabase Edge Function 入口：`supabase/functions/make-server-1fc434d6/index.ts`
 - Edge route map：`docs/edge-function-route-map.md`
+- 微信小程序骨架：`apps/weapp/`
 
 ## 按任务读这些文件
 
@@ -31,12 +32,14 @@
 - 本地优先和云同步：`docs/sync-data-flow.md`
 - Edge Function：`docs/edge-function-route-map.md`
 - 邀请码注册：`docs/invite-registration.md`
+- 微信小程序迁移：`docs/wechat-miniprogram-migration.md`
 - 管理员观测 SQL：`docs/sql/admin-observability.sql`
 
 ## 不要优先读取
 
 - `dist/`：构建产物。
 - `node_modules/`：依赖目录。
+- `apps/weapp/dist/`：小程序构建产物。
 - `docs/archive/`：历史归档，只在追溯旧产品设定时读取。
 - `scripts/.verbdata-translation-cache.json`：脚本缓存。
 - `.DS_Store`：系统文件。
@@ -48,6 +51,7 @@
 - `src/app/pages/FieldPage.tsx` 现在主要负责实战仓页面编排；答题、语料、卡壳、评价面板在 `src/app/components/field/` 下。
 - `src/app/utils/api.ts` 只是兼容 re-export 门面。改具体能力时优先读 `src/app/utils/api/admin.ts`、`ai.ts`、`sync.ts`、`invites.ts` 或共享 `client.ts`。
 - `src/app/pages/InviteCodesPage.tsx` 现在被 `AdminPage` 作为邀请码 Tab 复用。改管理员后台时先看 `AdminPage.tsx`。
+- `apps/weapp/` 是小程序独立骨架，不参与当前根目录 Vite 构建；不要把它的 Taro 依赖误加到 Web 端运行链路里。
 
 ## 常见上下文陷阱
 

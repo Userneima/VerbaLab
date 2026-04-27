@@ -1,5 +1,6 @@
 import type { FoundryExampleOverridePack } from '../utils/syncMerge';
 import { isBlankVocabCard } from '../utils/vocabCardBlank';
+import { getAppStorage } from '../platform/storage';
 import type {
   CorpusEntry,
   ErrorBankEntry,
@@ -14,7 +15,7 @@ import {
 
 export function loadFromStorage<T>(key: string, defaultValue: T): T {
   try {
-    const stored = localStorage.getItem(key);
+    const stored = getAppStorage().getItem(key);
     if (stored) {
       const parsed = JSON.parse(stored);
       if (key === 'ff_foundry_examples') {
@@ -40,9 +41,9 @@ export function loadFromStorage<T>(key: string, defaultValue: T): T {
 export function saveToStorage<T>(key: string, value: T) {
   try {
     if (value instanceof Set) {
-      localStorage.setItem(key, JSON.stringify(Array.from(value)));
+      getAppStorage().setItem(key, JSON.stringify(Array.from(value)));
     } else {
-      localStorage.setItem(key, JSON.stringify(value));
+      getAppStorage().setItem(key, JSON.stringify(value));
     }
   } catch {
     // ignore storage write failures

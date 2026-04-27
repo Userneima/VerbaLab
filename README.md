@@ -27,6 +27,22 @@ npm run test
 npm run build
 ```
 
+## WeChat Mini Program
+
+小程序迁移设计见：
+
+```text
+docs/wechat-miniprogram-migration.md
+```
+
+小程序骨架位于：
+
+```text
+apps/weapp/
+```
+
+它是独立 Taro 工程骨架，目前不参与根目录 Vite 构建，也不应直接复用 Web 端 Supabase session client。
+
 GitHub Actions 会执行上述前端检查，并对当前 Supabase Edge Function 入口运行：
 
 ```bash

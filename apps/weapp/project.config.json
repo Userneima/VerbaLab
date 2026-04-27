@@ -1,0 +1,14 @@
+{
+  "appid": "touristappid",
+  "projectname": "VerbaLab",
+  "miniprogramRoot": "dist/",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true
+  },
+  "compileType": "miniprogram",
+  "condition": {}
+}
