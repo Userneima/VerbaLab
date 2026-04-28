@@ -1,4 +1,5 @@
 import { Button, Text, Textarea, View } from '@tarojs/components';
+import Taro from '@tarojs/taro';
 import { useState } from 'react';
 import {
   generateExpressionGuide,
@@ -12,7 +13,6 @@ export default function ExpressionHelperPage() {
   const [thought, setThought] = useState('');
   const [guide, setGuide] = useState<ExpressionGuide | null>(null);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [customSentence, setCustomSentence] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -23,7 +23,6 @@ export default function ExpressionHelperPage() {
 
     setLoading(true);
     setError('');
-    setNotice('');
     setGuide(null);
 
     try {
@@ -41,13 +40,21 @@ export default function ExpressionHelperPage() {
     const sentence = (example?.sentence || customSentence).trim();
     if (!guide || !thought.trim() || !sentence || saving) return;
     if (!getAuthToken()) {
-      setError('请先到“我的”完成微信登录和邀请码绑定，再保存到语料库。');
+      Taro.showModal({
+        title: '需要先登录',
+        content: '请先到“我的”完成微信登录和邀请码绑定，再保存到语料库。',
+        confirmText: '去我的',
+        success: (result) => {
+          if (result.confirm) {
+            Taro.switchTab({ url: '/pages/profile/index' });
+          }
+        },
+      });
       return;
     }
 
     setSaving(true);
     setError('');
-    setNotice('');
     try {
       saveExpressionToLocal({
         chineseThought: thought.trim(),
@@ -59,10 +66,25 @@ export default function ExpressionHelperPage() {
       });
       try {
         await syncLearningState();
-        setNotice('已保存并同步到语料库。');
+        Taro.showToast({
+          title: '已保存到语料库',
+          icon: 'success',
+        });
       } catch {
-        setNotice('已保存到本地，网络恢复后可在“我的”手动同步。');
+        Taro.showModal({
+          title: '已保存到本地',
+          content: '这句话已经保存在本机。网络恢复后，可以在“我的”页面手动同步到云端。',
+          showCancel: false,
+          confirmText: '知道了',
+        });
       }
+    } catch (err) {
+      Taro.showModal({
+        title: '保存失败',
+        content: err instanceof Error ? err.message : '这次没有保存成功，请稍后再试。',
+        showCancel: false,
+        confirmText: '知道了',
+      });
     } finally {
       setSaving(false);
     }
@@ -95,11 +117,6 @@ export default function ExpressionHelperPage() {
       {error ? (
         <View className="error-card">
           <Text>{error}</Text>
-        </View>
-      ) : null}
-      {notice ? (
-        <View className="success-card">
-          <Text>{notice}</Text>
         </View>
       ) : null}
       {guide ? (
