@@ -1,10 +1,13 @@
 const TOKEN_KEY = 'verbalab_weapp_token';
+const REFRESH_TOKEN_KEY = 'verbalab_weapp_refresh_token';
 const PROFILE_KEY = 'verbalab_weapp_user_profile';
 
 export type WeappUserProfile = {
   userId: string;
   expiresAt: string;
   isNewUser?: boolean;
+  email?: string;
+  provider?: 'wechat' | 'password';
 };
 
 export function getStorageJson<T>(key: string, fallback: T): T {
@@ -33,6 +36,18 @@ export function clearAuthToken() {
   wx.removeStorageSync(TOKEN_KEY);
 }
 
+export function getRefreshToken(): string | null {
+  return wx.getStorageSync(REFRESH_TOKEN_KEY) || null;
+}
+
+export function setRefreshToken(token: string) {
+  wx.setStorageSync(REFRESH_TOKEN_KEY, token);
+}
+
+export function clearRefreshToken() {
+  wx.removeStorageSync(REFRESH_TOKEN_KEY);
+}
+
 export function getUserProfile(): WeappUserProfile | null {
   return getStorageJson<WeappUserProfile | null>(PROFILE_KEY, null);
 }
@@ -47,5 +62,6 @@ export function clearUserProfile() {
 
 export function clearAuthState() {
   clearAuthToken();
+  clearRefreshToken();
   clearUserProfile();
 }

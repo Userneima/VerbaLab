@@ -1,6 +1,7 @@
 import { requestJson } from '../../platform/request';
 import { getStorageJson, setStorageJson } from '../../platform/storage';
 import type { CorpusEntry, LearningState, StuckPointEntry, VocabCard } from './types';
+import type { VocabCardItem, VocabCardRegisterGuide } from './types';
 
 const CORPUS_KEY = 'verbalab_weapp_corpus';
 const STUCK_POINTS_KEY = 'verbalab_weapp_stuck_points';
@@ -142,6 +143,56 @@ export function saveExpressionToLocal(input: {
   return next;
 }
 
+function addDays(days: number): string {
+  return new Date(Date.now() + days * 24 * 60 * 60_000).toISOString();
+}
+
+export function saveVocabCardToLocal(input: {
+  headword: string;
+  sense?: string;
+  tags: string[];
+  items: Array<Omit<VocabCardItem, 'id'> & { id?: string }>;
+  spokenPracticePhrase?: string;
+  writtenSupplement?: string | null;
+  registerNoteZh?: string;
+  registerGuide?: VocabCardRegisterGuide;
+  spokenAlternatives?: string[];
+  isCommonInSpokenEnglish?: boolean;
+}): { state: LearningState; card: VocabCard } {
+  const now = new Date().toISOString();
+  const id = createId('vocab');
+  const card: VocabCard = {
+    id,
+    timestamp: now,
+    headword: input.headword.trim(),
+    sense: input.sense?.trim() || undefined,
+    spokenPracticePhrase: input.spokenPracticePhrase?.trim() || undefined,
+    writtenSupplement: input.writtenSupplement?.trim() || undefined,
+    registerNoteZh: input.registerNoteZh?.trim() || undefined,
+    registerGuide: input.registerGuide,
+    spokenAlternatives: input.spokenAlternatives?.length
+      ? [...new Set(input.spokenAlternatives.map((item) => item.trim()).filter(Boolean))]
+      : undefined,
+    isCommonInSpokenEnglish: input.isCommonInSpokenEnglish,
+    tags: input.tags,
+    items: input.items.map((item, index) => ({
+      ...item,
+      id: item.id || `${id}-i${index}`,
+    })),
+    source: 'ai_word_lab',
+    lastViewedAt: null,
+    nextDueAt: addDays(3),
+    reviewStage: 0,
+  };
+  const current = getLearningState();
+  const next = {
+    ...current,
+    vocabCards: [card, ...current.vocabCards],
+  };
+  setLearningState(next);
+  return { state: next, card };
+}
+
 export async function syncLearningState(): Promise<LearningState> {
   const local = getLearningState();
   const remote = await requestJson<SyncLoadResult>({
@@ -170,10 +221,6 @@ export async function syncLearningState(): Promise<LearningState> {
   });
   setLearningState({ lastSyncedAt: new Date().toISOString() });
   return getLearningState();
-}
-
-function addDays(days: number): string {
-  return new Date(Date.now() + days * 24 * 60 * 60_000).toISOString();
 }
 
 export function updateVocabReview(cardId: string, result: 'remembered' | 'struggled'): LearningState {
