@@ -103,7 +103,7 @@ export default function ExpressionHelperPage() {
           onInput={(event) => setThought(String(event.detail.value || ''))}
           placeholder="例如：我们不是一路人 / 我想委婉拒绝 / 我有点被这个项目压住了"
           maxlength={300}
-          style="margin-top: 24px; width: 100%; min-height: 180px; box-sizing: border-box; border-radius: 20px; border: 1px solid #e4e7ec; padding: 20px; background: #fff; font-size: 28px;"
+          style="margin-top: 24px; width: 100%; min-height: 180px; box-sizing: border-box; border-radius: 20px; border: 1px solid #e4e7ec; padding: 20px; background: #fff; font-size: 30px;"
         />
         <Button
           className="primary-button"
@@ -155,7 +155,7 @@ export default function ExpressionHelperPage() {
             onInput={(event) => setCustomSentence(String(event.detail.value || ''))}
             placeholder="可以把上面的例句改成更像你自己的句子"
             maxlength={500}
-            style="margin-top: 16px; width: 100%; min-height: 140px; box-sizing: border-box; border-radius: 18px; border: 1px solid #e4e7ec; padding: 18px; background: #fff; font-size: 26px;"
+            style="margin-top: 16px; width: 100%; min-height: 140px; box-sizing: border-box; border-radius: 18px; border: 1px solid #e4e7ec; padding: 18px; background: #fff; font-size: 30px;"
           />
           <Button
             className="primary-button"
