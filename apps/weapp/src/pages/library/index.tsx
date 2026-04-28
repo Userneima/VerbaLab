@@ -77,7 +77,7 @@ export default function LibraryPage() {
           value={query}
           onInput={(event) => setQuery(String(event.detail.value || ''))}
           placeholder="搜索中文、英文或搭配"
-          style="margin-top: 24px; box-sizing: border-box; width: 100%; border: 1px solid #e4e7ec; border-radius: 18px; padding: 18px; font-size: 28px; background: #fff;"
+          style="margin-top: 24px; box-sizing: border-box; width: 100%; min-height: 72px; border: 1px solid #e4e7ec; border-radius: 18px; padding: 12px 18px; font-size: 24px; background: #fff;"
         />
         <Button className="primary-button" loading={loading} disabled={loading} onClick={syncNow}>
           同步表达

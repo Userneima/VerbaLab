@@ -84,7 +84,7 @@ export default function ProfilePage() {
             value={inviteCode}
             onInput={(event) => setInviteCode(String(event.detail.value || ''))}
             placeholder="首次绑定请输入邀请码"
-            style="margin-top: 24px; box-sizing: border-box; width: 100%; border: 1px solid #e4e7ec; border-radius: 18px; padding: 18px; font-size: 28px; background: #fff;"
+            style="margin-top: 24px; box-sizing: border-box; width: 100%; min-height: 72px; border: 1px solid #e4e7ec; border-radius: 18px; padding: 12px 18px; font-size: 24px; background: #fff;"
           />
         ) : null}
         <Button className="primary-button" loading={loading} disabled={loading} onClick={loggedIn ? handleSync : handleLogin}>
