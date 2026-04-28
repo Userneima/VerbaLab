@@ -114,6 +114,16 @@ function mergeLearnedIds(local: string[] | undefined, remote: string[] | undefin
 
 type FoundryPack = { items: Array<{ content: string; chinese?: string }>; updatedAt?: string };
 
+function normalizePayloadArray(value: unknown, fallback: unknown[] = []): unknown[] {
+  return Array.isArray(value) ? value : fallback;
+}
+
+function normalizeFoundryOverrides(value: unknown, fallback: Record<string, FoundryPack> = {}): Record<string, FoundryPack> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, FoundryPack>
+    : fallback;
+}
+
 function mergeFoundryExampleOverrides(
   local: Record<string, FoundryPack> | undefined,
   remote: Record<string, FoundryPack> | undefined,
@@ -135,6 +145,77 @@ function mergeFoundryExampleOverrides(
 }
 
 export function registerSyncRoutes(app: Hono) {
+  app.post("/make-server-1fc434d6/sync/replace", async (c) => {
+    try {
+      const userId = await getUserId(c);
+      if (!userId) {
+        return c.json({ error: "Unauthorized - valid auth token required" }, 401);
+      }
+
+      const body = await c.req.json();
+      const prefix = `ffu_${userId}`;
+      const [
+        remoteCorpus,
+        remoteErrorBank,
+        remoteStuckPoints,
+        remoteLearnedCollocations,
+        remoteVocabCards,
+        remoteFoundryExampleOverrides,
+      ] = await kv.mget([
+        `${prefix}_corpus`,
+        `${prefix}_errors`,
+        `${prefix}_stuck`,
+        `${prefix}_learned`,
+        `${prefix}_vocab`,
+        `${prefix}_foundry_examples`,
+      ]);
+      const nowIso = new Date().toISOString();
+      const syncMeta = {
+        updatedAt: nowIso,
+        corpusAt: nowIso,
+        errorsAt: nowIso,
+        stuckAt: nowIso,
+        learnedAt: nowIso,
+        vocabAt: nowIso,
+        foundryAt: nowIso,
+      };
+
+      await kv.mset(
+        [
+          `${prefix}_corpus`,
+          `${prefix}_errors`,
+          `${prefix}_stuck`,
+          `${prefix}_learned`,
+          `${prefix}_vocab`,
+          `${prefix}_foundry_examples`,
+          `${prefix}_sync_meta`,
+        ],
+        [
+          normalizePayloadArray(body.corpus, Array.isArray(remoteCorpus) ? remoteCorpus : []),
+          normalizePayloadArray(body.errorBank, Array.isArray(remoteErrorBank) ? remoteErrorBank : []),
+          normalizePayloadArray(body.stuckPoints, Array.isArray(remoteStuckPoints) ? remoteStuckPoints : []),
+          normalizePayloadArray(
+            body.learnedCollocations,
+            Array.isArray(remoteLearnedCollocations) ? remoteLearnedCollocations : [],
+          ),
+          normalizePayloadArray(body.vocabCards, Array.isArray(remoteVocabCards) ? remoteVocabCards : []),
+          normalizeFoundryOverrides(
+            body.foundryExampleOverrides,
+            normalizeFoundryOverrides(remoteFoundryExampleOverrides),
+          ),
+          syncMeta,
+        ],
+      );
+
+      console.log(`Data replaced for user: ${userId}`);
+
+      return c.json({ success: true, timestamp: nowIso });
+    } catch (err) {
+      console.log(`Error replacing sync data: ${err}`);
+      return c.json({ error: `Failed to replace data: ${err}` }, 500);
+    }
+  });
+
   app.post("/make-server-1fc434d6/sync/save", async (c) => {
     try {
       const userId = await getUserId(c);

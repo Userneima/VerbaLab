@@ -100,6 +100,31 @@ export function clearLearningState() {
   setStorageJson(SYNC_META_KEY, {});
 }
 
+function buildSyncPayload(state: LearningState): SyncSavePayload {
+  return {
+    corpus: state.corpus,
+    errorBank: [],
+    stuckPoints: state.stuckPoints,
+    learnedCollocations: [],
+    vocabCards: state.vocabCards,
+    foundryExampleOverrides: {},
+  };
+}
+
+export async function pushLearningState(): Promise<LearningState> {
+  const local = getLearningState();
+  await requestJson<{ success: boolean; timestamp: string }>({
+    method: 'POST',
+    path: '/sync/replace',
+    data: {
+      stuckPoints: local.stuckPoints,
+      vocabCards: local.vocabCards,
+    },
+  });
+  setLearningState({ lastSyncedAt: new Date().toISOString() });
+  return getLearningState();
+}
+
 export function saveExpressionToLocal(input: {
   chineseThought: string;
   sentence: string;
@@ -206,21 +231,33 @@ export async function syncLearningState(): Promise<LearningState> {
     lastSyncedAt: new Date().toISOString(),
   };
   setLearningState(merged);
-  const payload: SyncSavePayload = {
-    corpus: merged.corpus,
-    errorBank: [],
-    stuckPoints: merged.stuckPoints,
-    learnedCollocations: [],
-    vocabCards: merged.vocabCards,
-    foundryExampleOverrides: {},
-  };
   await requestJson<{ success: boolean; timestamp: string }>({
     method: 'POST',
     path: '/sync/save',
-    data: payload,
+    data: buildSyncPayload(merged),
   });
   setLearningState({ lastSyncedAt: new Date().toISOString() });
   return getLearningState();
+}
+
+export function deleteStuckPointFromLocal(stuckPointId: string): LearningState {
+  const current = getLearningState();
+  const next = {
+    ...current,
+    stuckPoints: current.stuckPoints.filter((item) => item.id !== stuckPointId),
+  };
+  setLearningState(next);
+  return next;
+}
+
+export function deleteVocabCardFromLocal(cardId: string): LearningState {
+  const current = getLearningState();
+  const next = {
+    ...current,
+    vocabCards: current.vocabCards.filter((card) => card.id !== cardId),
+  };
+  setLearningState(next);
+  return next;
 }
 
 export function updateVocabReview(cardId: string, result: 'remembered' | 'struggled'): LearningState {

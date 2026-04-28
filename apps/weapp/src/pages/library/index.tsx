@@ -2,8 +2,11 @@ import { Button, Input, Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  deleteStuckPointFromLocal,
+  deleteVocabCardFromLocal,
   getDueVocabCards,
   getLearningState,
+  pushLearningState,
   syncLearningState,
   updateVocabReview,
 } from '../../features/learning/store';
@@ -163,8 +166,55 @@ export default function LibraryPage() {
     }
   }
 
+  async function pushDeletionToCloud(successMessage: string) {
+    if (!getAuthToken()) {
+      setMessage(successMessage);
+      return;
+    }
+    try {
+      const state = await pushLearningState();
+      setStuckPoints(state.stuckPoints);
+      setVocabCards(state.vocabCards);
+      setMessage(`${successMessage} 已同步到云端。`);
+    } catch (err) {
+      setMessage(err instanceof Error ? `本地已删除，但云端同步失败：${err.message}` : '本地已删除，但云端同步失败。');
+    }
+  }
+
   function copy(text: string) {
     wx.setClipboardData({ data: text });
+  }
+
+  function confirmDeleteVocabCard(card: VocabCard) {
+    Taro.showModal({
+      title: '删除词卡',
+      content: `确定删除“${card.headword}”吗？删除后不会再出现在小程序资产库里。`,
+      confirmText: '删除',
+      confirmColor: '#be123c',
+      success(result) {
+        if (!result.confirm) return;
+        const next = deleteVocabCardFromLocal(card.id);
+        setVocabCards(next.vocabCards);
+        if (selectedVocabCard?.id === card.id) closeVocabCard();
+        void pushDeletionToCloud('词卡已删除。');
+      },
+    });
+  }
+
+  function confirmDeleteStuckPoint(item: StuckPointEntry) {
+    Taro.showModal({
+      title: '删除卡壳点',
+      content: `确定删除“${item.chineseThought}”吗？`,
+      confirmText: '删除',
+      confirmColor: '#be123c',
+      success(result) {
+        if (!result.confirm) return;
+        const next = deleteStuckPointFromLocal(item.id);
+        setStuckPoints(next.stuckPoints);
+        if (selectedStuckPoint?.id === item.id) setSelectedStuckPoint(null);
+        void pushDeletionToCloud('卡壳点已删除。');
+      },
+    });
   }
 
   function getVocabBrief(card: VocabCard): string {
@@ -317,6 +367,15 @@ export default function LibraryPage() {
                   <View className="vocab-compact-meta">
                     <View className={card.__isDue ? 'vocab-status due' : 'vocab-status'}>{card.__isDue ? '待复习' : '词卡'}</View>
                     <View className="vocab-date">{formatDate(card.timestamp)}</View>
+                    <Button
+                      className="compact-delete-button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        confirmDeleteVocabCard(card);
+                      }}
+                    >
+                      删除
+                    </Button>
                   </View>
                 </View>
               ))}
@@ -341,6 +400,15 @@ export default function LibraryPage() {
                 }}
               >
                 复制
+              </Button>
+              <Button
+                className="compact-delete-button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  confirmDeleteStuckPoint(item);
+                }}
+              >
+                删除
               </Button>
             </View>
           ))
@@ -450,6 +518,9 @@ export default function LibraryPage() {
               {selectedVocabCard.items[0]?.sentence ? (
                 <Button className="secondary-button" onClick={() => copy(selectedVocabCard.items[0].sentence)}>复制例句</Button>
               ) : null}
+              <Button className="danger-button" onClick={() => confirmDeleteVocabCard(selectedVocabCard)}>
+                删除词卡
+              </Button>
           </View>
         </View>
       ) : null}
@@ -478,6 +549,9 @@ export default function LibraryPage() {
             ) : null}
             <Button className="secondary-button" onClick={() => copy(getStuckCopyText(selectedStuckPoint))}>
               复制表达
+            </Button>
+            <Button className="danger-button" onClick={() => confirmDeleteStuckPoint(selectedStuckPoint)}>
+              删除卡壳点
             </Button>
           </View>
         </View>

@@ -384,6 +384,17 @@ page {
   padding: 0 18px;
 }
 
+.compact-delete-button {
+  margin: 0;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: #be123c;
+  font-size: 22px;
+  font-weight: 700;
+  padding: 0 18px;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
