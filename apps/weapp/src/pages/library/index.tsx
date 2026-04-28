@@ -1,13 +1,22 @@
 import { Button, Input, Text, View } from '@tarojs/components';
 import { useEffect, useMemo, useState } from 'react';
-import { getLearningState, syncLearningState } from '../../features/learning/store';
-import type { CorpusEntry, StuckPointEntry } from '../../features/learning/types';
+import {
+  getDueVocabCards,
+  getLearningState,
+  syncLearningState,
+  updateVocabReview,
+} from '../../features/learning/store';
+import type { CorpusEntry, StuckPointEntry, VocabCard } from '../../features/learning/types';
 import { getAuthToken } from '../../platform/storage';
+
+type AssetTab = 'expressions' | 'vocab' | 'stuck';
 
 export default function LibraryPage() {
   const [query, setQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<AssetTab>('expressions');
   const [corpus, setCorpus] = useState<CorpusEntry[]>([]);
   const [stuckPoints, setStuckPoints] = useState<StuckPointEntry[]>([]);
+  const [vocabCards, setVocabCards] = useState<VocabCard[]>([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -15,6 +24,7 @@ export default function LibraryPage() {
     const state = getLearningState();
     setCorpus(state.corpus);
     setStuckPoints(state.stuckPoints);
+    setVocabCards(state.vocabCards);
   }
 
   useEffect(() => {
@@ -41,6 +51,38 @@ export default function LibraryPage() {
     );
   }, [stuckPoints, query]);
 
+  const filteredVocab = useMemo(() => {
+    const ordered = getDueVocabCards(vocabCards, vocabCards.length || 20);
+    const q = query.trim().toLowerCase();
+    if (!q) return ordered;
+    return ordered.filter((card) =>
+      [
+        card.headword,
+        card.sense,
+        card.spokenPracticePhrase,
+        card.registerGuide?.anchorZh,
+        card.registerNoteZh,
+        ...(card.tags || []),
+        ...(card.registerGuide?.coreCollocations || []),
+        ...card.items.flatMap((item) => [item.sentence, item.chinese, ...item.collocationsUsed]),
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q)),
+    );
+  }, [vocabCards, query]);
+
+  const dueVocabCount = useMemo(
+    () => vocabCards.filter((card) => card.nextDueAt && card.nextDueAt <= new Date().toISOString()).length,
+    [vocabCards],
+  );
+
+  const placeholderText =
+    activeTab === 'expressions'
+      ? '还没有语料。可以先去“表达”页生成并保存一句。'
+      : activeTab === 'vocab'
+        ? '还没有词卡。可以先去“工坊”生成一张。'
+        : '还没有卡壳点。保存表达指导后会沉淀到这里。';
+
   async function syncNow() {
     if (!getAuthToken()) {
       setMessage('请先到“我的”完成微信登录和邀请码绑定，再同步表达。');
@@ -52,7 +94,8 @@ export default function LibraryPage() {
       const state = await syncLearningState();
       setCorpus(state.corpus);
       setStuckPoints(state.stuckPoints);
-      setMessage('表达已同步。');
+      setVocabCards(state.vocabCards);
+      setMessage('资产已同步。');
     } catch (err) {
       refreshLocal();
       setMessage(err instanceof Error ? err.message : '同步失败，已显示本地内容。');
@@ -65,22 +108,52 @@ export default function LibraryPage() {
     wx.setClipboardData({ data: text });
   }
 
+  async function review(cardId: string, result: 'remembered' | 'struggled') {
+    const next = updateVocabReview(cardId, result);
+    setVocabCards(next.vocabCards);
+    if (getAuthToken()) {
+      await syncLearningState()
+        .then((state) => setVocabCards(state.vocabCards))
+        .catch(() => null);
+    }
+  }
+
   return (
     <View className="page-shell">
       <View className="hero-card">
-        <View className="eyebrow">把会说的留下来</View>
-        <View className="title">我的表达</View>
+        <View className="eyebrow">统一管理</View>
+        <View className="title">资产库</View>
         <View className="subtitle">
-          这里会汇总语料库和卡壳点，方便复制、搜索和再次练习。
+          这里统一管理语料、词卡和卡壳点。生产入口负责生成，资产库负责搜索、复制和复习。
+        </View>
+        <View className="segmented-control">
+          <Button
+            className={activeTab === 'expressions' ? 'segment-button active' : 'segment-button'}
+            onClick={() => setActiveTab('expressions')}
+          >
+            表达
+          </Button>
+          <Button
+            className={activeTab === 'vocab' ? 'segment-button active' : 'segment-button'}
+            onClick={() => setActiveTab('vocab')}
+          >
+            词卡{dueVocabCount ? ` ${dueVocabCount}` : ''}
+          </Button>
+          <Button
+            className={activeTab === 'stuck' ? 'segment-button active' : 'segment-button'}
+            onClick={() => setActiveTab('stuck')}
+          >
+            卡壳
+          </Button>
         </View>
         <Input
           value={query}
           onInput={(event) => setQuery(String(event.detail.value || ''))}
-          placeholder="搜索中文、英文或搭配"
+          placeholder="搜索中文、英文、搭配或词卡"
           style="margin-top: 24px; box-sizing: border-box; width: 100%; min-height: 72px; border: 1px solid #e4e7ec; border-radius: 18px; padding: 12px 18px; font-size: 24px; background: #fff;"
         />
         <Button className="primary-button" loading={loading} disabled={loading} onClick={syncNow}>
-          同步表达
+          同步资产
         </Button>
         {message ? (
           <View className={message.includes('失败') || message.includes('请先') ? 'error-card' : 'success-card'}>
@@ -88,27 +161,74 @@ export default function LibraryPage() {
           </View>
         ) : null}
       </View>
-      {filteredCorpus.length === 0 && filteredStuck.length === 0 ? (
-        <View className="placeholder-card">还没有表达。可以先去“表达”页生成并保存一句。</View>
+      {activeTab === 'expressions' && filteredCorpus.length === 0 ? (
+        <View className="placeholder-card">{placeholderText}</View>
       ) : null}
-      {filteredCorpus.map((item) => (
-        <View className="result-card" key={item.id}>
-          <View className="result-label">语料</View>
-          <View className="example-sentence">{item.userSentence}</View>
-          {item.zhTranslation ? <View className="example-chinese">{item.zhTranslation}</View> : null}
-          {item.collocation ? <View className="chip-row"><View className="chip">{item.collocation}</View></View> : null}
-          <Button className="secondary-button" onClick={() => copy(item.userSentence)}>复制英文</Button>
-        </View>
-      ))}
-      {filteredStuck.map((item) => (
-        <View className="result-card" key={item.id}>
-          <View className="result-label">卡壳点</View>
-          <View className="recommended-expression">{item.chineseThought}</View>
-          {item.recommendedExpression ? <View className="chip-row"><View className="chip">{item.recommendedExpression}</View></View> : null}
-          {item.englishAttempt ? <View className="example-card"><View className="example-sentence">{item.englishAttempt}</View></View> : null}
-          <Button className="secondary-button" onClick={() => copy(item.englishAttempt || item.recommendedExpression || item.chineseThought)}>复制</Button>
-        </View>
-      ))}
+      {activeTab === 'vocab' && filteredVocab.length === 0 ? (
+        <View className="placeholder-card">{placeholderText}</View>
+      ) : null}
+      {activeTab === 'stuck' && filteredStuck.length === 0 ? (
+        <View className="placeholder-card">{placeholderText}</View>
+      ) : null}
+      {activeTab === 'expressions'
+        ? filteredCorpus.map((item) => (
+            <View className="result-card" key={item.id}>
+              <View className="result-label">语料</View>
+              <View className="example-sentence">{item.userSentence}</View>
+              {item.zhTranslation ? <View className="example-chinese">{item.zhTranslation}</View> : null}
+              {item.collocation ? <View className="chip-row"><View className="chip">{item.collocation}</View></View> : null}
+              <Button className="secondary-button" onClick={() => copy(item.userSentence)}>复制英文</Button>
+            </View>
+          ))
+        : null}
+      {activeTab === 'vocab'
+        ? filteredVocab.map((card) => (
+            <View className="result-card" key={card.id}>
+              <View className="result-label">
+                {card.nextDueAt && card.nextDueAt <= new Date().toISOString() ? '待复习' : '词卡'}
+              </View>
+              <View className="recommended-expression">{card.headword}</View>
+              {card.registerGuide?.anchorZh || card.registerNoteZh ? (
+                <View className="guidance-card">
+                  <Text>{card.registerGuide?.anchorZh || card.registerNoteZh}</Text>
+                </View>
+              ) : null}
+              {card.registerGuide?.coreCollocations?.length ? (
+                <View className="chip-row">
+                  {card.registerGuide.coreCollocations.map((item) => (
+                    <View className="chip" key={item}>{item}</View>
+                  ))}
+                </View>
+              ) : null}
+              {card.items.slice(0, 2).map((item) => (
+                <View className="example-card" key={item.id}>
+                  <View className="example-sentence">{item.sentence}</View>
+                  {item.chinese ? <View className="example-chinese">{item.chinese}</View> : null}
+                  {item.collocationsUsed?.length ? (
+                    <View className="chip-row">
+                      {item.collocationsUsed.map((phrase) => (
+                        <View className="chip" key={phrase}>{phrase}</View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              ))}
+              <Button className="primary-button" onClick={() => review(card.id, 'remembered')}>记住了</Button>
+              <Button className="secondary-button" onClick={() => review(card.id, 'struggled')}>还不熟</Button>
+            </View>
+          ))
+        : null}
+      {activeTab === 'stuck'
+        ? filteredStuck.map((item) => (
+            <View className="result-card" key={item.id}>
+              <View className="result-label">卡壳点</View>
+              <View className="recommended-expression">{item.chineseThought}</View>
+              {item.recommendedExpression ? <View className="chip-row"><View className="chip">{item.recommendedExpression}</View></View> : null}
+              {item.englishAttempt ? <View className="example-card"><View className="example-sentence">{item.englishAttempt}</View></View> : null}
+              <Button className="secondary-button" onClick={() => copy(item.englishAttempt || item.recommendedExpression || item.chineseThought)}>复制</Button>
+            </View>
+          ))
+        : null}
     </View>
   );
 }

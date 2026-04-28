@@ -24,11 +24,11 @@ export default defineAppConfig({
       },
       {
         pagePath: 'pages/vocab-review/index',
-        text: '词卡',
+        text: '工坊',
       },
       {
         pagePath: 'pages/library/index',
-        text: '语料',
+        text: '资产',
       },
       {
         pagePath: 'pages/profile/index',
