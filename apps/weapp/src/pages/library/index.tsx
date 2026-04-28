@@ -1,5 +1,5 @@
 import { Button, Input, Text, View } from '@tarojs/components';
-import Taro from '@tarojs/taro';
+import Taro, { useDidShow } from '@tarojs/taro';
 import { useEffect, useMemo, useState } from 'react';
 import {
   deleteStuckPointFromLocal,
@@ -90,6 +90,10 @@ export default function LibraryPage() {
   useEffect(() => {
     refreshLocal();
   }, []);
+
+  useDidShow(() => {
+    refreshLocal();
+  });
 
   const filteredStuck = useMemo(() => {
     const q = query.trim().toLowerCase();
