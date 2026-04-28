@@ -9,7 +9,7 @@ export type RequestOptions = {
 };
 
 function getFunctionBaseUrl() {
-  return process.env.TARO_APP_FUNCTION_BASE_URL || FALLBACK_FUNCTION_BASE_URL;
+  return FALLBACK_FUNCTION_BASE_URL;
 }
 
 export function requestJson<T>({ method = 'GET', path, data }: RequestOptions): Promise<T> {
