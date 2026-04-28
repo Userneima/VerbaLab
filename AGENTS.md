@@ -164,8 +164,9 @@ Mini program form controls should stay visually quiet and never compete with tit
 
 When editing [apps/weapp](/Users/yuchao/Documents/GitHub/VerbaLab/apps/weapp):
 
-- `Input` and `Textarea` text should default to `12px` unless a design decision explicitly changes the whole scale
+- `Input` and `Textarea` text should default to `14px` unless a design decision explicitly changes the whole scale
 - search boxes, login fields, word inputs, and expression textareas should not use headline-sized text
+- input containers should fit their content scale; avoid large `min-height` or padding that leaves obvious empty space
 - keep input text visually below page titles, primary buttons, and saved content
 - if a new input style is reused, extract or align it instead of copying inconsistent inline styles across pages
 

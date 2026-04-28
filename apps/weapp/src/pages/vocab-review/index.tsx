@@ -149,13 +149,13 @@ export default function VocabReviewPage() {
           value={headword}
           onInput={(event) => setHeadword(String(event.detail.value || ''))}
           placeholder="输入单词或短语，例如 mirage"
-          style="margin-top: 24px; box-sizing: border-box; width: 100%; min-height: 72px; border: 1px solid #e4e7ec; border-radius: 18px; padding: 12px 18px; font-size: 12px; background: #fff;"
+          style="margin-top: 24px; box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid #e4e7ec; border-radius: 18px; padding: 8px 14px; font-size: 14px; background: #fff;"
         />
         <Input
           value={sense}
           onInput={(event) => setSense(String(event.detail.value || ''))}
           placeholder="可选：限定词义，例如“泡影，不是海市蜃楼”"
-          style="margin-top: 16px; box-sizing: border-box; width: 100%; min-height: 72px; border: 1px solid #e4e7ec; border-radius: 18px; padding: 12px 18px; font-size: 12px; background: #fff;"
+          style="margin-top: 16px; box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid #e4e7ec; border-radius: 18px; padding: 8px 14px; font-size: 14px; background: #fff;"
         />
         <Button
           className="primary-button"
