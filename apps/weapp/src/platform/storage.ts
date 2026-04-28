@@ -1,4 +1,11 @@
 const TOKEN_KEY = 'verbalab_weapp_token';
+const PROFILE_KEY = 'verbalab_weapp_user_profile';
+
+export type WeappUserProfile = {
+  userId: string;
+  expiresAt: string;
+  isNewUser?: boolean;
+};
 
 export function getStorageJson<T>(key: string, fallback: T): T {
   try {
@@ -24,4 +31,21 @@ export function setAuthToken(token: string) {
 
 export function clearAuthToken() {
   wx.removeStorageSync(TOKEN_KEY);
+}
+
+export function getUserProfile(): WeappUserProfile | null {
+  return getStorageJson<WeappUserProfile | null>(PROFILE_KEY, null);
+}
+
+export function setUserProfile(profile: WeappUserProfile) {
+  setStorageJson(PROFILE_KEY, profile);
+}
+
+export function clearUserProfile() {
+  wx.removeStorageSync(PROFILE_KEY);
+}
+
+export function clearAuthState() {
+  clearAuthToken();
+  clearUserProfile();
 }

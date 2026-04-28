@@ -135,20 +135,76 @@ export async function captureServerError(scope: string, err: unknown) {
 }
 
 export async function getUserId(c: any): Promise<string | null> {
-  const accessToken = c.req.header("Authorization")?.split(" ")[1];
-  if (!accessToken) return null;
-  try {
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
-    if (error || !user?.id) return null;
-    return user.id;
-  } catch {
-    return null;
-  }
+  const user = await getAuthenticatedUser(c);
+  return user?.id || null;
 }
 
-export async function getAuthenticatedUser(
-  c: any,
+async function sha256Hex(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function randomToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  const body = Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `wmp_${body}`;
+}
+
+async function getWechatSessionUser(
+  token: string,
 ): Promise<{ id: string; email: string | null } | null> {
+  if (!token.startsWith("wmp_")) return null;
+  const tokenHash = await sha256Hex(token);
+  const { data, error } = await supabaseAdmin
+    .from("wechat_sessions")
+    .select("user_id, expires_at")
+    .eq("token_hash", tokenHash)
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+
+  if (error || !data?.user_id) return null;
+
+  await supabaseAdmin
+    .from("wechat_sessions")
+    .update({ last_used_at: new Date().toISOString() })
+    .eq("token_hash", tokenHash);
+
+  const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(data.user_id);
+  if (userError || !userData.user?.id) return null;
+  return {
+    id: userData.user.id,
+    email: typeof userData.user.email === "string" ? userData.user.email : null,
+  };
+}
+
+export async function createWechatSession(userId: string): Promise<{ token: string; expiresAt: string }> {
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
+  const { error } = await supabaseAdmin.from("wechat_sessions").insert({
+    user_id: userId,
+    token_hash: tokenHash,
+    expires_at: expiresAt,
+    last_used_at: new Date().toISOString(),
+  });
+  if (error) throw error;
+  return { token, expiresAt };
+}
+
+export async function revokeWechatSessions(userId: string): Promise<void> {
+  await supabaseAdmin
+    .from("wechat_sessions")
+    .delete()
+    .eq("user_id", userId);
+}
+
+export async function getSupabaseJwtUser(c: any): Promise<{ id: string; email: string | null } | null> {
   const accessToken = c.req.header("Authorization")?.split(" ")[1];
   if (!accessToken) return null;
   try {
@@ -161,6 +217,16 @@ export async function getAuthenticatedUser(
   } catch {
     return null;
   }
+}
+
+export async function getAuthenticatedUser(
+  c: any,
+): Promise<{ id: string; email: string | null } | null> {
+  const accessToken = c.req.header("Authorization")?.split(" ")[1];
+  if (!accessToken) return null;
+  const supabaseUser = await getSupabaseJwtUser(c);
+  if (supabaseUser) return supabaseUser;
+  return getWechatSessionUser(accessToken);
 }
 
 export async function requireAuth(

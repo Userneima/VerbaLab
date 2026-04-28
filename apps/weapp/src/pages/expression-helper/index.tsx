@@ -3,13 +3,19 @@ import { useState } from 'react';
 import {
   generateExpressionGuide,
   type ExpressionGuide,
+  type ExpressionGuideExample,
 } from '../../features/expressionHelper/api';
+import { saveExpressionToLocal, syncLearningState } from '../../features/learning/store';
+import { getAuthToken } from '../../platform/storage';
 
 export default function ExpressionHelperPage() {
   const [thought, setThought] = useState('');
   const [guide, setGuide] = useState<ExpressionGuide | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [customSentence, setCustomSentence] = useState('');
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   async function handleGenerate() {
     const chineseThought = thought.trim();
@@ -17,15 +23,48 @@ export default function ExpressionHelperPage() {
 
     setLoading(true);
     setError('');
+    setNotice('');
     setGuide(null);
 
     try {
       const result = await generateExpressionGuide(chineseThought);
       setGuide(result);
+      setCustomSentence(result.examples[0]?.sentence || '');
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成失败，请稍后再试');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveSentence(example?: ExpressionGuideExample) {
+    const sentence = (example?.sentence || customSentence).trim();
+    if (!guide || !thought.trim() || !sentence || saving) return;
+    if (!getAuthToken()) {
+      setError('请先到“我的”完成微信登录和邀请码绑定，再保存到语料库。');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      saveExpressionToLocal({
+        chineseThought: thought.trim(),
+        sentence,
+        chinese: example?.chinese,
+        noteZh: example?.noteZh,
+        recommendedExpression: guide.recommendedExpression,
+        guidanceZh: guide.guidanceZh || guide.suggestion,
+      });
+      try {
+        await syncLearningState();
+        setNotice('已保存并同步到语料库。');
+      } catch {
+        setNotice('已保存到本地，网络恢复后可在“我的”手动同步。');
+      }
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -58,6 +97,11 @@ export default function ExpressionHelperPage() {
           <Text>{error}</Text>
         </View>
       ) : null}
+      {notice ? (
+        <View className="success-card">
+          <Text>{notice}</Text>
+        </View>
+      ) : null}
       {guide ? (
         <View className="result-card">
           <View className="result-label">推荐表达</View>
@@ -76,11 +120,34 @@ export default function ExpressionHelperPage() {
                 <View className="example-sentence">{example.sentence}</View>
                 {example.chinese ? <View className="example-chinese">{example.chinese}</View> : null}
                 {example.noteZh ? <View className="example-note">{example.noteZh}</View> : null}
+                <Button
+                  className="secondary-button"
+                  disabled={saving}
+                  onClick={() => saveSentence(example)}
+                >
+                  收进语料库
+                </Button>
               </View>
             ))
           ) : (
             <View className="empty-card">这次没有返回例句，可以换一种中文说法再试一次。</View>
           )}
+          <View className="result-section-title">改成自己的说法</View>
+          <Textarea
+            value={customSentence}
+            onInput={(event) => setCustomSentence(String(event.detail.value || ''))}
+            placeholder="可以把上面的例句改成更像你自己的句子"
+            maxlength={500}
+            style="margin-top: 16px; width: 100%; min-height: 140px; box-sizing: border-box; border-radius: 18px; border: 1px solid #e4e7ec; padding: 18px; background: #fff; font-size: 26px;"
+          />
+          <Button
+            className="primary-button"
+            disabled={!customSentence.trim() || saving}
+            loading={saving}
+            onClick={() => saveSentence()}
+          >
+            {saving ? '保存中...' : '保存我的句子'}
+          </Button>
         </View>
       ) : null}
     </View>

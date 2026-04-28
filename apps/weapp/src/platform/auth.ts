@@ -1,8 +1,10 @@
 import { requestJson } from './request';
-import { setAuthToken } from './storage';
+import { setAuthToken, setUserProfile } from './storage';
 
 export type WechatLoginResult = {
-  token: string;
+  token?: string;
+  userId?: string;
+  expiresAt?: string;
   isNewUser?: boolean;
   needsInvite?: boolean;
 };
@@ -31,6 +33,13 @@ export async function loginWithWechat(inviteCode?: string): Promise<WechatLoginR
     path: '/auth/wechat-login',
     data: { code, inviteCode },
   });
-  if (result.token) setAuthToken(result.token);
+  if (result.token && result.userId && result.expiresAt) {
+    setAuthToken(result.token);
+    setUserProfile({
+      userId: result.userId,
+      expiresAt: result.expiresAt,
+      isNewUser: result.isNewUser,
+    });
+  }
   return result;
 }
