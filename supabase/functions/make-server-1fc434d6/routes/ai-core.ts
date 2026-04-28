@@ -1,5 +1,6 @@
 import type { Hono } from "npm:hono";
-import { aiUsageBlockedResponse, callTrackedDeepSeek, parseJsonFromModel } from "./ai-shared.ts";
+import { enforceRateLimit, getClientIp } from "../platform.ts";
+import { aiUsageBlockedResponse, callDeepSeek, callTrackedDeepSeek, parseJsonFromModel } from "./ai-shared.ts";
 
 export function registerCoreAiRoutes(app: Hono) {
   const grammarCheckHandler = async (c: any) => {
@@ -236,6 +237,103 @@ export function registerCoreAiRoutes(app: Hono) {
       const blocked = aiUsageBlockedResponse(c, err);
       if (blocked) return blocked;
       console.log(`Error in stuck suggestion: ${err}`);
+      return c.json({ error: `Stuck suggestion failed: ${err}` }, 500);
+    }
+  });
+
+  app.post("/make-server-1fc434d6/public/stuck-suggest", async (c) => {
+    try {
+      const ip = getClientIp(c);
+      const shortWindow = await enforceRateLimit(`public-stuck:${ip}:10m`, 12, 10 * 60_000);
+      if (!shortWindow.ok) {
+        return c.json(
+          { error: "请求太频繁，请稍后再试", retryAfterSec: shortWindow.retryAfterSec },
+          429,
+        );
+      }
+      const dayWindow = await enforceRateLimit(`public-stuck:${ip}:1d`, 60, 24 * 60 * 60_000);
+      if (!dayWindow.ok) {
+        return c.json(
+          { error: "今日体验次数已用完，请稍后再试", retryAfterSec: dayWindow.retryAfterSec },
+          429,
+        );
+      }
+
+      const { chineseThought } = await c.req.json();
+      const thought = String(chineseThought || "").trim();
+      if (!thought || thought.length > 300) {
+        return c.json({ error: "chineseThought is required, max 300 chars" }, 400);
+      }
+
+      const systemPrompt =
+        "You are an English speaking coach for Chinese ESL learners. The learner is stuck and tells you what they want to say in Chinese.\n\n" +
+        "Help them express the idea in natural, simple, speakable English. Prefer everyday English and core verbs when possible.\n\n" +
+        "Respond ONLY with valid JSON (no markdown):\n" +
+        "{\n" +
+        "  \"type\": \"paraphrase\",\n" +
+        "  \"suggestion\": \"A short mixed Chinese/English summary for quick display. Keep it concise.\",\n" +
+        "  \"recommendedExpression\": \"A short English phrase (2-5 words) the learner should remember, such as get an offer / feel under pressure / keep in touch.\",\n" +
+        "  \"guidanceZh\": \"Chinese guidance explaining the most natural way to express the idea and what wording to prioritize.\",\n" +
+        "  \"examples\": [\n" +
+        "    {\n" +
+        "      \"sentence\": \"One natural English sentence\",\n" +
+        "      \"chinese\": \"Natural Chinese translation\",\n" +
+        "      \"noteZh\": \"Why this sentence works or when to use it\"\n" +
+        "    }\n" +
+        "  ]\n" +
+        "}\n\n" +
+        "Rules:\n" +
+        "- Always return recommendedExpression when possible.\n" +
+        "- recommendedExpression should be the core expression the learner should remember, not a full sentence.\n" +
+        "- Always return 2 or 3 example sentences.\n" +
+        "- Examples must directly match the learner's Chinese thought.\n" +
+        "- Example sentences must be natural, everyday usable English.\n" +
+        "- guidanceZh must be concise, practical, and directly usable.\n" +
+        "- Prefer simple, speakable English over fancy vocabulary.";
+
+      const result = await callDeepSeek(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `我想表达：${thought}` },
+        ],
+        0.5,
+        1024,
+      );
+
+      let parsed;
+      try {
+        parsed = parseJsonFromModel(result) as Record<string, unknown>;
+      } catch {
+        parsed = { type: "paraphrase", suggestion: result, guidanceZh: result, examples: [] };
+      }
+
+      const rawExamples = Array.isArray(parsed.examples) ? parsed.examples : [];
+      const examples = rawExamples
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+          const row = item as Record<string, unknown>;
+          const sentence = String(row.sentence || "").trim();
+          if (!sentence) return null;
+          const chinese = String(row.chinese || "").trim();
+          const noteZh = String(row.noteZh || "").trim();
+          return {
+            sentence,
+            chinese: chinese || undefined,
+            noteZh: noteZh || undefined,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 3);
+
+      return c.json({
+        type: "paraphrase",
+        suggestion: String(parsed.suggestion || parsed.guidanceZh || "").trim(),
+        recommendedExpression: String(parsed.recommendedExpression || "").trim() || undefined,
+        guidanceZh: String(parsed.guidanceZh || "").trim() || undefined,
+        examples,
+      });
+    } catch (err) {
+      console.log(`Error in public stuck suggestion: ${err}`);
       return c.json({ error: `Stuck suggestion failed: ${err}` }, 500);
     }
   });

@@ -17,11 +17,9 @@ export type ExpressionGuide = {
 export function generateExpressionGuide(chineseThought: string): Promise<ExpressionGuide> {
   return requestJson<ExpressionGuide>({
     method: 'POST',
-    path: '/ai/stuck-suggest',
+    path: '/public/stuck-suggest',
     data: {
       chineseThought,
-      corpusSentences: [],
-      verbCollocations: [],
     },
   });
 }
