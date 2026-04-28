@@ -12,6 +12,7 @@ import { getAuthToken } from '../../platform/storage';
 
 type AssetTab = 'vocab' | 'stuck';
 type VocabSortMode = 'due' | 'newest' | 'alphaAsc' | 'alphaDesc';
+type SentenceTile = { id: string; text: string };
 
 const VOCAB_SORT_LABELS: Record<VocabSortMode, string> = {
   due: '待复习优先',
@@ -22,6 +23,46 @@ const VOCAB_SORT_LABELS: Record<VocabSortMode, string> = {
 
 const VOCAB_SORT_OPTIONS: VocabSortMode[] = ['due', 'newest', 'alphaAsc', 'alphaDesc'];
 
+function normalizeSentence(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/[^a-z0-9'\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function shuffleTiles(tiles: SentenceTile[]): SentenceTile[] {
+  const next = [...tiles];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
+}
+
+function splitSentenceIntoTiles(sentence: string): SentenceTile[] {
+  const words = sentence.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 8) {
+    return words.map((text, index) => ({ id: `tile-${index}`, text }));
+  }
+
+  const chunkCount = Math.min(7, Math.max(4, Math.round(words.length / 3)));
+  const baseSize = Math.floor(words.length / chunkCount);
+  const extra = words.length % chunkCount;
+  const tiles: SentenceTile[] = [];
+  let cursor = 0;
+
+  for (let index = 0; index < chunkCount; index += 1) {
+    const size = baseSize + (index < extra ? 1 : 0);
+    const text = words.slice(cursor, cursor + size).join(' ');
+    if (text) tiles.push({ id: `tile-${index}`, text });
+    cursor += size;
+  }
+
+  return tiles;
+}
+
 export default function LibraryPage() {
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState<AssetTab>('stuck');
@@ -29,6 +70,10 @@ export default function LibraryPage() {
   const [vocabCards, setVocabCards] = useState<VocabCard[]>([]);
   const [selectedVocabCard, setSelectedVocabCard] = useState<VocabCard | null>(null);
   const [selectedStuckPoint, setSelectedStuckPoint] = useState<StuckPointEntry | null>(null);
+  const [tilePool, setTilePool] = useState<SentenceTile[]>([]);
+  const [selectedTiles, setSelectedTiles] = useState<SentenceTile[]>([]);
+  const [tilePassed, setTilePassed] = useState(false);
+  const [tileMessage, setTileMessage] = useState('');
   const [vocabSortMode, setVocabSortMode] = useState<VocabSortMode>('due');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -154,6 +199,49 @@ export default function LibraryPage() {
     });
   }
 
+  function openVocabCard(card: VocabCard) {
+    const sentence = card.items[0]?.sentence || '';
+    setSelectedVocabCard(card);
+    setSelectedTiles([]);
+    setTilePassed(false);
+    setTileMessage('');
+    setTilePool(sentence ? shuffleTiles(splitSentenceIntoTiles(sentence)) : []);
+  }
+
+  function closeVocabCard() {
+    setSelectedVocabCard(null);
+    setSelectedTiles([]);
+    setTilePool([]);
+    setTilePassed(false);
+    setTileMessage('');
+  }
+
+  function moveTileToAnswer(tile: SentenceTile) {
+    if (tilePassed) return;
+    setTilePool((current) => current.filter((item) => item.id !== tile.id));
+    setSelectedTiles((current) => [...current, tile]);
+    setTileMessage('');
+  }
+
+  function moveTileToPool(tile: SentenceTile) {
+    if (tilePassed) return;
+    setSelectedTiles((current) => current.filter((item) => item.id !== tile.id));
+    setTilePool((current) => [...current, tile]);
+    setTileMessage('');
+  }
+
+  function checkTileOrder() {
+    const sentence = selectedVocabCard?.items[0]?.sentence || '';
+    if (!sentence) return;
+    const reconstructed = selectedTiles.map((tile) => tile.text).join(' ');
+    if (normalizeSentence(reconstructed) === normalizeSentence(sentence)) {
+      setTilePassed(true);
+      setTileMessage('顺序对了，现在再判断这张卡是否记住。');
+      return;
+    }
+    setTileMessage('顺序还不对，点已选词块可以放回下方重排。');
+  }
+
   async function review(cardId: string, result: 'remembered' | 'struggled') {
     const next = updateVocabReview(cardId, result);
     setVocabCards(next.vocabCards);
@@ -221,7 +309,7 @@ export default function LibraryPage() {
                 </Button>
               </View>
               {filteredVocab.map((card) => (
-                <View className="vocab-compact-card" key={card.id} onClick={() => setSelectedVocabCard(card)}>
+                <View className="vocab-compact-card" key={card.id} onClick={() => openVocabCard(card)}>
                   <View className="vocab-compact-main">
                     <View className="vocab-compact-headword">{card.headword}</View>
                     <View className="vocab-compact-brief">{getVocabBrief(card)}</View>
@@ -258,7 +346,7 @@ export default function LibraryPage() {
           ))
         : null}
       {selectedVocabCard ? (
-        <View className="modal-backdrop" onClick={() => setSelectedVocabCard(null)}>
+        <View className="modal-backdrop" onClick={closeVocabCard}>
           <View className="modal-card" onClick={(event) => event.stopPropagation()}>
             <View className="modal-header">
               <View>
@@ -267,7 +355,7 @@ export default function LibraryPage() {
                 </View>
                 <View className="recommended-expression">{selectedVocabCard.headword}</View>
               </View>
-              <Button className="modal-close" onClick={() => setSelectedVocabCard(null)}>×</Button>
+              <Button className="modal-close" onClick={closeVocabCard}>×</Button>
             </View>
             {selectedVocabCard.registerGuide?.anchorZh || selectedVocabCard.registerNoteZh ? (
               <View className="guidance-card">
@@ -294,8 +382,71 @@ export default function LibraryPage() {
                   ) : null}
                 </View>
               ))}
-              <Button className="primary-button" onClick={() => review(selectedVocabCard.id, 'remembered')}>记住了</Button>
-              <Button className="secondary-button" onClick={() => review(selectedVocabCard.id, 'struggled')}>还不熟</Button>
+              {selectedVocabCard.items[0]?.sentence ? (
+                <View className="tile-review-card">
+                  <View className="tile-review-header">
+                    <View>
+                      <View className="tile-review-title">句子重排检验</View>
+                      <View className="tile-review-subtitle">
+                        先根据中文提示拼回英文句子，再选择复习结果。
+                      </View>
+                    </View>
+                    <View className={tilePassed ? 'tile-count passed' : 'tile-count'}>
+                      {selectedTiles.length}/{selectedTiles.length + tilePool.length}
+                    </View>
+                  </View>
+                  {selectedVocabCard.items[0]?.chinese ? (
+                    <View className="tile-prompt">提示中文：{selectedVocabCard.items[0].chinese}</View>
+                  ) : null}
+                  <View className="tile-area-title">你的英文</View>
+                  <View className="tile-answer-box">
+                    {selectedTiles.length ? (
+                      selectedTiles.map((tile) => (
+                        <Button className="selected-tile" key={tile.id} onClick={() => moveTileToPool(tile)}>
+                          {tile.text}
+                        </Button>
+                      ))
+                    ) : (
+                      <Text>点击下方词块开始重排</Text>
+                    )}
+                  </View>
+                  <View className="tile-area-title">词块</View>
+                  <View className="tile-pool">
+                    {tilePool.map((tile) => (
+                      <Button className="pool-tile" key={tile.id} onClick={() => moveTileToAnswer(tile)}>
+                        {tile.text}
+                      </Button>
+                    ))}
+                  </View>
+                  {tileMessage ? (
+                    <View className={tilePassed ? 'tile-message success' : 'tile-message'}>
+                      {tileMessage}
+                    </View>
+                  ) : null}
+                  <Button
+                    className="primary-button tile-check-button"
+                    disabled={tilePassed || selectedTiles.length !== selectedTiles.length + tilePool.length}
+                    onClick={checkTileOrder}
+                  >
+                    {tilePassed ? '已拼对' : '检查顺序'}
+                  </Button>
+                </View>
+              ) : null}
+              <View className="review-action-row">
+                <Button
+                  className="primary-button review-action-button"
+                  disabled={Boolean(selectedVocabCard.items[0]?.sentence) && !tilePassed}
+                  onClick={() => review(selectedVocabCard.id, 'remembered')}
+                >
+                  记住了
+                </Button>
+                <Button
+                  className="secondary-button review-action-button"
+                  onClick={() => review(selectedVocabCard.id, 'struggled')}
+                >
+                  还不熟
+                </Button>
+              </View>
               {selectedVocabCard.items[0]?.sentence ? (
                 <Button className="secondary-button" onClick={() => copy(selectedVocabCard.items[0].sentence)}>复制例句</Button>
               ) : null}
