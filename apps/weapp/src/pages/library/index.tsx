@@ -1,4 +1,5 @@
 import { Button, Input, Text, View } from '@tarojs/components';
+import Taro from '@tarojs/taro';
 import { useEffect, useMemo, useState } from 'react';
 import {
   getDueVocabCards,
@@ -10,6 +11,16 @@ import type { CorpusEntry, StuckPointEntry, VocabCard } from '../../features/lea
 import { getAuthToken } from '../../platform/storage';
 
 type AssetTab = 'expressions' | 'vocab' | 'stuck';
+type VocabSortMode = 'due' | 'newest' | 'alphaAsc' | 'alphaDesc';
+
+const VOCAB_SORT_LABELS: Record<VocabSortMode, string> = {
+  due: '待复习优先',
+  newest: '添加时间',
+  alphaAsc: '首字母 A-Z',
+  alphaDesc: '首字母 Z-A',
+};
+
+const VOCAB_SORT_OPTIONS: VocabSortMode[] = ['due', 'newest', 'alphaAsc', 'alphaDesc'];
 
 export default function LibraryPage() {
   const [query, setQuery] = useState('');
@@ -17,6 +28,8 @@ export default function LibraryPage() {
   const [corpus, setCorpus] = useState<CorpusEntry[]>([]);
   const [stuckPoints, setStuckPoints] = useState<StuckPointEntry[]>([]);
   const [vocabCards, setVocabCards] = useState<VocabCard[]>([]);
+  const [selectedVocabCard, setSelectedVocabCard] = useState<VocabCard | null>(null);
+  const [vocabSortMode, setVocabSortMode] = useState<VocabSortMode>('due');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -52,10 +65,20 @@ export default function LibraryPage() {
   }, [stuckPoints, query]);
 
   const filteredVocab = useMemo(() => {
-    const ordered = getDueVocabCards(vocabCards, vocabCards.length || 20);
+    const now = new Date().toISOString();
+    const ordered =
+      vocabSortMode === 'due'
+        ? getDueVocabCards(vocabCards, vocabCards.length || 20)
+        : [...vocabCards].sort((a, b) => {
+            if (vocabSortMode === 'newest') {
+              return String(b.timestamp || '').localeCompare(String(a.timestamp || ''));
+            }
+            const result = a.headword.localeCompare(b.headword, 'en', { sensitivity: 'base' });
+            return vocabSortMode === 'alphaAsc' ? result : -result;
+          });
     const q = query.trim().toLowerCase();
-    if (!q) return ordered;
-    return ordered.filter((card) =>
+    const filtered = q
+      ? ordered.filter((card) =>
       [
         card.headword,
         card.sense,
@@ -68,8 +91,13 @@ export default function LibraryPage() {
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(q)),
-    );
-  }, [vocabCards, query]);
+    )
+      : ordered;
+    return filtered.map((card) => ({
+      ...card,
+      __isDue: Boolean(card.nextDueAt && card.nextDueAt <= now),
+    })) as Array<VocabCard & { __isDue?: boolean }>;
+  }, [vocabCards, query, vocabSortMode]);
 
   const dueVocabCount = useMemo(
     () => vocabCards.filter((card) => card.nextDueAt && card.nextDueAt <= new Date().toISOString()).length,
@@ -108,12 +136,40 @@ export default function LibraryPage() {
     wx.setClipboardData({ data: text });
   }
 
+  function getVocabBrief(card: VocabCard): string {
+    return (
+      card.registerGuide?.anchorZh ||
+      card.registerNoteZh ||
+      card.items.find((item) => item.chinese)?.chinese ||
+      card.sense ||
+      '暂无中文释义'
+    );
+  }
+
+  function formatDate(value?: string | null): string {
+    if (!value) return '';
+    return new Date(value).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+  }
+
+  function chooseVocabSort() {
+    Taro.showActionSheet({
+      itemList: VOCAB_SORT_OPTIONS.map((option) => VOCAB_SORT_LABELS[option]),
+      success(result) {
+        setVocabSortMode(VOCAB_SORT_OPTIONS[result.tapIndex] || 'due');
+      },
+    });
+  }
+
   async function review(cardId: string, result: 'remembered' | 'struggled') {
     const next = updateVocabReview(cardId, result);
     setVocabCards(next.vocabCards);
+    setSelectedVocabCard(next.vocabCards.find((card) => card.id === cardId) || null);
     if (getAuthToken()) {
       await syncLearningState()
-        .then((state) => setVocabCards(state.vocabCards))
+        .then((state) => {
+          setVocabCards(state.vocabCards);
+          setSelectedVocabCard(state.vocabCards.find((card) => card.id === cardId) || null);
+        })
         .catch(() => null);
     }
   }
@@ -182,41 +238,28 @@ export default function LibraryPage() {
           ))
         : null}
       {activeTab === 'vocab'
-        ? filteredVocab.map((card) => (
-            <View className="result-card" key={card.id}>
-              <View className="result-label">
-                {card.nextDueAt && card.nextDueAt <= new Date().toISOString() ? '待复习' : '词卡'}
+        ? (
+            <>
+              <View className="asset-toolbar">
+                <Text>共 {filteredVocab.length} 张 · {dueVocabCount} 张待复习</Text>
+                <Button className="toolbar-button" onClick={chooseVocabSort}>
+                  {VOCAB_SORT_LABELS[vocabSortMode]}
+                </Button>
               </View>
-              <View className="recommended-expression">{card.headword}</View>
-              {card.registerGuide?.anchorZh || card.registerNoteZh ? (
-                <View className="guidance-card">
-                  <Text>{card.registerGuide?.anchorZh || card.registerNoteZh}</Text>
-                </View>
-              ) : null}
-              {card.registerGuide?.coreCollocations?.length ? (
-                <View className="chip-row">
-                  {card.registerGuide.coreCollocations.map((item) => (
-                    <View className="chip" key={item}>{item}</View>
-                  ))}
-                </View>
-              ) : null}
-              {card.items.slice(0, 2).map((item) => (
-                <View className="example-card" key={item.id}>
-                  <View className="example-sentence">{item.sentence}</View>
-                  {item.chinese ? <View className="example-chinese">{item.chinese}</View> : null}
-                  {item.collocationsUsed?.length ? (
-                    <View className="chip-row">
-                      {item.collocationsUsed.map((phrase) => (
-                        <View className="chip" key={phrase}>{phrase}</View>
-                      ))}
-                    </View>
-                  ) : null}
+              {filteredVocab.map((card) => (
+                <View className="vocab-compact-card" key={card.id} onClick={() => setSelectedVocabCard(card)}>
+                  <View className="vocab-compact-main">
+                    <View className="vocab-compact-headword">{card.headword}</View>
+                    <View className="vocab-compact-brief">{getVocabBrief(card)}</View>
+                  </View>
+                  <View className="vocab-compact-meta">
+                    <View className={card.__isDue ? 'vocab-status due' : 'vocab-status'}>{card.__isDue ? '待复习' : '词卡'}</View>
+                    <View className="vocab-date">{formatDate(card.timestamp)}</View>
+                  </View>
                 </View>
               ))}
-              <Button className="primary-button" onClick={() => review(card.id, 'remembered')}>记住了</Button>
-              <Button className="secondary-button" onClick={() => review(card.id, 'struggled')}>还不熟</Button>
-            </View>
-          ))
+            </>
+          )
         : null}
       {activeTab === 'stuck'
         ? filteredStuck.map((item) => (
@@ -229,6 +272,51 @@ export default function LibraryPage() {
             </View>
           ))
         : null}
+      {selectedVocabCard ? (
+        <View className="modal-backdrop" onClick={() => setSelectedVocabCard(null)}>
+          <View className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <View className="modal-header">
+              <View>
+                <View className="result-label">
+                  {selectedVocabCard.nextDueAt && selectedVocabCard.nextDueAt <= new Date().toISOString() ? '待复习' : '词卡'}
+                </View>
+                <View className="recommended-expression">{selectedVocabCard.headword}</View>
+              </View>
+              <Button className="modal-close" onClick={() => setSelectedVocabCard(null)}>×</Button>
+            </View>
+            {selectedVocabCard.registerGuide?.anchorZh || selectedVocabCard.registerNoteZh ? (
+              <View className="guidance-card">
+                <Text>{selectedVocabCard.registerGuide?.anchorZh || selectedVocabCard.registerNoteZh}</Text>
+              </View>
+            ) : null}
+            {selectedVocabCard.registerGuide?.coreCollocations?.length ? (
+                <View className="chip-row">
+                  {selectedVocabCard.registerGuide.coreCollocations.map((item) => (
+                    <View className="chip" key={item}>{item}</View>
+                  ))}
+                </View>
+              ) : null}
+              {selectedVocabCard.items.map((item) => (
+                <View className="example-card" key={item.id}>
+                  <View className="example-sentence">{item.sentence}</View>
+                  {item.chinese ? <View className="example-chinese">{item.chinese}</View> : null}
+                  {item.collocationsUsed?.length ? (
+                    <View className="chip-row">
+                      {item.collocationsUsed.map((phrase) => (
+                        <View className="chip" key={phrase}>{phrase}</View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              ))}
+              <Button className="primary-button" onClick={() => review(selectedVocabCard.id, 'remembered')}>记住了</Button>
+              <Button className="secondary-button" onClick={() => review(selectedVocabCard.id, 'struggled')}>还不熟</Button>
+              {selectedVocabCard.items[0]?.sentence ? (
+                <Button className="secondary-button" onClick={() => copy(selectedVocabCard.items[0].sentence)}>复制例句</Button>
+              ) : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
