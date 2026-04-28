@@ -158,6 +158,18 @@ Most learning state should still work without cloud sync.
 
 Do not make core practice loops depend on network-only success unless there is a graceful fallback.
 
+## WeChat Mini Program UI Scale
+
+Mini program form controls must not look like titles.
+
+When editing [apps/weapp](/Users/yuchao/Documents/GitHub/VerbaLab/apps/weapp):
+
+- single-line `Input` text should default to `22px`; do not use `24px+` unless it is a deliberate hero input
+- `Input` placeholder text should feel secondary, not headline-sized
+- search boxes and login fields should stay visually quieter than card titles and primary content
+- multiline `Textarea` can be larger only when it is the main creation surface, such as the expression input
+- if a new input style is reused, extract or align it instead of copying oversized inline styles across pages
+
 ---
 
 # File and Folder Guidance
