@@ -14,6 +14,10 @@ export default function ProfilePage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | undefined>();
 
+  function isErrorMessage(value: string): boolean {
+    return /失败|错误|不正确|无效|invalid|required|too many|过多|未完成|没有完成/.test(value.toLowerCase());
+  }
+
   function refreshStatus() {
     setLoggedIn(Boolean(getAuthToken() && getUserProfile()));
     setLastSyncedAt(getLearningState().lastSyncedAt);
@@ -156,7 +160,7 @@ export default function ProfilePage() {
         {loggedIn && getUserProfile()?.email ? <View className="meta-line">当前账号：{getUserProfile()?.email}</View> : null}
         {lastSyncedAt ? <View className="meta-line">上次同步：{new Date(lastSyncedAt).toLocaleString()}</View> : null}
         {message ? (
-          <View className={message.includes('失败') || message.includes('required') ? 'error-card' : 'success-card'}>
+          <View className={isErrorMessage(message) ? 'error-card' : 'success-card'}>
             <Text>{message}</Text>
           </View>
         ) : null}

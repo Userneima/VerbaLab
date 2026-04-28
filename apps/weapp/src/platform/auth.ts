@@ -23,6 +23,23 @@ type PasswordLoginResponse = {
   msg?: string;
 };
 
+function toPasswordLoginErrorMessage(body: PasswordLoginResponse): string {
+  const rawMessage = body.error_description || body.msg || body.error || '';
+  const normalized = rawMessage.toLowerCase();
+
+  if (normalized.includes('invalid login credentials')) {
+    return '邮箱或密码不正确。这里登录的是 VerbaLab / Supabase 账号密码，不是 Gmail 邮箱密码。';
+  }
+  if (normalized.includes('email not confirmed')) {
+    return '这个邮箱还没有完成确认，请先在 Web 端确认账号状态。';
+  }
+  if (normalized.includes('too many')) {
+    return '登录尝试过多，请稍后再试。';
+  }
+
+  return rawMessage || '账号或密码不正确';
+}
+
 function wxLogin(): Promise<string> {
   return new Promise((resolve, reject) => {
     wx.login({
@@ -73,7 +90,7 @@ export function loginWithPassword(email: string, password: string): Promise<Wech
       success(res) {
         const body = res.data as PasswordLoginResponse;
         if (res.statusCode < 200 || res.statusCode >= 300 || !body.access_token || !body.user?.id) {
-          reject(new Error(body.error_description || body.msg || body.error || '账号或密码不正确'));
+          reject(new Error(toPasswordLoginErrorMessage(body)));
           return;
         }
         const expiresAt = new Date(Date.now() + (body.expires_in || 3600) * 1000).toISOString();
