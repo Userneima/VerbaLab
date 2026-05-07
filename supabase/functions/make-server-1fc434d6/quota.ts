@@ -326,17 +326,17 @@ export async function grantQuota(input: {
   let label = "管理员调整";
 
   if (input.grantType === "pack") {
-    const add = amount || 100;
+    const add = amount || 300;
     row.pack_remaining += add;
     delta = add;
     label = `管理员加次包 ${add} 次`;
   } else if (input.grantType === "gift") {
-    const add = amount || 100;
+    const add = amount || 30;
     row.gift_remaining += add;
     delta = add;
     label = `管理员赠送 ${add} 次`;
   } else if (input.grantType === "monthly") {
-    const limit = monthlyLimit || 800;
+    const limit = monthlyLimit || 2000;
     row.plan_type = "monthly";
     row.plan_monthly_limit = limit;
     row.plan_monthly_used = 0;
@@ -345,7 +345,7 @@ export async function grantQuota(input: {
     delta = limit;
     label = `管理员开通月卡 ${limit} 次/月`;
   } else {
-    const limit = monthlyLimit || 800;
+    const limit = monthlyLimit || 3000;
     row.plan_type = "yearly";
     row.plan_monthly_limit = limit;
     row.plan_monthly_used = 0;

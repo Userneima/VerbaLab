@@ -209,7 +209,7 @@ function UsagePanel({
                         disabled={actionLoading === `quota-pack:${row.userId}`}
                         className="rounded-full border border-emerald-200 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
                       >
-                        加 100 次
+                        加 300 次
                       </button>
                       <button
                         type="button"
@@ -240,22 +240,22 @@ const GRANT_PRESETS: Array<{
   payload: QuotaGrantPayload;
 }> = [
   {
-    key: 'pack100',
-    label: '次数包 100 次',
-    helper: '对应 ¥9.9 / 100 次，直接增加额外可用次数。',
-    payload: { grantType: 'pack', amount: 100 },
+    key: 'pack300',
+    label: '次数包 300 次',
+    helper: '对应 ¥9.9 / 300 次，适合偶尔加量。',
+    payload: { grantType: 'pack', amount: 300 },
   },
   {
-    key: 'monthly800',
+    key: 'monthly2000',
     label: '月卡 30 天',
-    helper: '本月 800 次，30 天后到期；适合手动开通月卡。',
-    payload: { grantType: 'monthly', monthlyLimit: 800 },
+    helper: '本月 2000 次，30 天后到期；主推日常练习和备考。',
+    payload: { grantType: 'monthly', monthlyLimit: 2000 },
   },
   {
-    key: 'yearly800',
+    key: 'yearly3000',
     label: '年卡 365 天',
-    helper: '每月 800 次，365 天后到期；每月自动重置已用量。',
-    payload: { grantType: 'yearly', monthlyLimit: 800 },
+    helper: '每月 3000 次，365 天后到期；适合长期高频使用。',
+    payload: { grantType: 'yearly', monthlyLimit: 3000 },
   },
   {
     key: 'gift30',
@@ -424,7 +424,7 @@ function QuotaPanel({
                 <textarea
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
-                  placeholder="例如：微信已付款，¥9.9 次数包"
+                  placeholder="例如：微信已付款，¥19.9 月卡"
                   className="mt-2 min-h-24 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm leading-6 text-slate-900 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50"
                 />
               </label>
@@ -612,8 +612,8 @@ export function AdminPage() {
       await grantAdminUserQuota(
         userId,
         grantType === 'pack'
-          ? { grantType: 'pack', amount: 100, note: 'manual admin grant' }
-          : { grantType: 'monthly', monthlyLimit: 800, note: 'manual admin monthly plan' }
+          ? { grantType: 'pack', amount: 300, note: 'manual admin grant' }
+          : { grantType: 'monthly', monthlyLimit: 2000, note: 'manual admin monthly plan' }
       );
       await loadAdminData(true);
     } catch (grantError) {

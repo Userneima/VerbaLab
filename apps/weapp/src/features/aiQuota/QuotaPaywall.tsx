@@ -8,16 +8,16 @@ type QuotaPaywallProps = {
   onClose: () => void;
 };
 
-const ADMIN_CONTACT_EMAIL = 'wyc1186164839@gmail.com';
+const ADMIN_WECHAT_ID = 'Mixwyc';
 
 export function QuotaPaywall({ visible, cost = 1, onClose }: QuotaPaywallProps) {
   if (!visible) return null;
 
-  function copyAdminContact() {
+  function copyAdminWechat() {
     Taro.setClipboardData({
-      data: ADMIN_CONTACT_EMAIL,
+      data: ADMIN_WECHAT_ID,
       success() {
-        Taro.showToast({ title: '已复制管理员邮箱', icon: 'success' });
+        Taro.showToast({ title: '已复制微信号', icon: 'success' });
       },
     });
   }
@@ -39,7 +39,7 @@ export function QuotaPaywall({ visible, cost = 1, onClose }: QuotaPaywallProps) 
             <View className="quota-sheet-title">AI 生成次数不足</View>
             <View className="quota-sheet-subtitle">
               {cost > 1 ? `本次需要 ${cost} 次 AI 生成次数。` : ''}
-              你输入的内容会保留。可复制网页版链接去网页端处理额度，也可以联系管理员提升额度。网页版可能需要科学上网才能进入。
+              你输入的内容会保留。可以复制下面任一方式提升额度。
             </View>
           </View>
           <Button className="modal-close" onClick={onClose}>×</Button>
@@ -49,10 +49,19 @@ export function QuotaPaywall({ visible, cost = 1, onClose }: QuotaPaywallProps) 
           <View className="quota-plan-card">
             <View className="quota-plan-main">
               <View className="quota-plan-name-row">
+                <Text className="quota-plan-name">推荐套餐</Text>
+              </View>
+              <View className="quota-plan-quota">月卡 2000 次/月 · 年卡 3000 次/月</View>
+              <View className="quota-plan-note">适合每天练表达、收词卡；付款后管理员手动开通。</View>
+            </View>
+          </View>
+          <View className="quota-plan-card">
+            <View className="quota-plan-main">
+              <View className="quota-plan-name-row">
                 <Text className="quota-plan-name">去网页版增加额度</Text>
               </View>
-              <View className="quota-plan-quota">verbalab-elis.vercel.app</View>
-              <View className="quota-plan-note">复制链接后在浏览器打开。网页版可能需要科学上网才能进入。</View>
+              <View className="quota-plan-quota">{VERBALAB_WEB_URL}</View>
+              <View className="quota-plan-note">可能需要科学上网。</View>
             </View>
             <Button className="quota-plan-button" onClick={copyWebLink}>
               复制
@@ -63,18 +72,15 @@ export function QuotaPaywall({ visible, cost = 1, onClose }: QuotaPaywallProps) 
               <View className="quota-plan-name-row">
                 <Text className="quota-plan-name">联系管理员提升额度</Text>
               </View>
-              <View className="quota-plan-quota">{ADMIN_CONTACT_EMAIL}</View>
-              <View className="quota-plan-note">说明你的账号邮箱和使用场景，管理员会手动为账号加次数或开通内测额度。</View>
+              <View className="quota-plan-quota">微信号：{ADMIN_WECHAT_ID}</View>
+              <View className="quota-plan-note">付款后管理员会手动为当前账号加额度。</View>
             </View>
-            <Button className="quota-plan-button" onClick={copyAdminContact}>
+            <Button className="quota-plan-button" onClick={copyAdminWechat}>
               复制
             </Button>
           </View>
         </View>
 
-        <View className="quota-trust-note">
-          资产库、已保存内容、搜索、复制和基础复习永久免费。
-        </View>
         <Button className="secondary-button" onClick={onClose}>先不用 AI 生成</Button>
       </View>
     </View>

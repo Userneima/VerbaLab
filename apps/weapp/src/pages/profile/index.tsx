@@ -8,7 +8,7 @@ import { clearAuthState, getAuthToken, getUserProfile, type WeappUserProfile } f
 import { getAiQuotaSummary, getLatestAiQuotaSummary, type AiQuotaSummary } from '../../features/aiQuota/store';
 import { VERBALAB_WEB_URL } from '../../platform/config';
 
-const ADMIN_CONTACT_EMAIL = 'wyc1186164839@gmail.com';
+const ADMIN_WECHAT_ID = 'Mixwyc';
 
 type AssetStats = {
   corpusCount: number;
@@ -82,6 +82,7 @@ export default function ProfilePage() {
   const [assetStats, setAssetStats] = useState<AssetStats>(() => buildAssetStats(getLearningState()));
   const [quotaSummary, setQuotaSummary] = useState<AiQuotaSummary>(() => getAiQuotaSummary());
   const [showQuotaLedger, setShowQuotaLedger] = useState(false);
+  const [showQuotaHelp, setShowQuotaHelp] = useState(false);
 
   function isErrorMessage(value: string): boolean {
     return /失败|错误|不正确|无效|invalid|required|too many|过多|未完成|没有完成/.test(value.toLowerCase());
@@ -171,11 +172,11 @@ export default function ProfilePage() {
     }
   }
 
-  function copyAdminContact() {
+  function copyAdminWechat() {
     Taro.setClipboardData({
-      data: ADMIN_CONTACT_EMAIL,
+      data: ADMIN_WECHAT_ID,
       success() {
-        Taro.showToast({ title: '已复制管理员邮箱', icon: 'success' });
+        Taro.showToast({ title: '已复制微信号', icon: 'success' });
       },
     });
   }
@@ -185,19 +186,6 @@ export default function ProfilePage() {
       data: VERBALAB_WEB_URL,
       success() {
         Taro.showToast({ title: '已复制网页版链接', icon: 'success' });
-      },
-    });
-  }
-
-  function openQuotaHelpSheet() {
-    Taro.showActionSheet({
-      itemList: ['复制网页版链接', '复制管理员邮箱'],
-      success(result) {
-        if (result.tapIndex === 0) {
-          copyWebLink();
-          return;
-        }
-        copyAdminContact();
       },
     });
   }
@@ -345,13 +333,30 @@ export default function ProfilePage() {
         )}
         <Button
           className="secondary-button"
-          onClick={openQuotaHelpSheet}
+          onClick={() => setShowQuotaHelp(!showQuotaHelp)}
         >
-          申请提升额度
+          {showQuotaHelp ? '收起提升额度入口' : '申请提升额度'}
         </Button>
-        <View className="meta-line">
-          网页版入口可用于处理额度；复制链接后在浏览器打开，可能需要科学上网才能进入。
-        </View>
+        {showQuotaHelp ? (
+          <View className="quota-help-panel">
+            <View className="quota-help-row">
+              <View className="quota-help-main">
+                <View className="quota-help-label">网页版入口</View>
+                <View className="quota-help-value">{VERBALAB_WEB_URL}</View>
+                <View className="quota-help-note">复制后在浏览器打开，可能需要科学上网。</View>
+              </View>
+              <Button className="quota-help-copy" onClick={copyWebLink}>复制</Button>
+            </View>
+            <View className="quota-help-row">
+              <View className="quota-help-main">
+                <View className="quota-help-label">管理员微信</View>
+                <View className="quota-help-value">{ADMIN_WECHAT_ID}</View>
+                <View className="quota-help-note">付款后管理员会手动为当前账号加额度。</View>
+              </View>
+              <Button className="quota-help-copy" onClick={copyAdminWechat}>复制</Button>
+            </View>
+          </View>
+        ) : null}
         <Button className="secondary-button" onClick={() => setShowQuotaLedger(!showQuotaLedger)}>
           {showQuotaLedger ? '收起使用明细' : '查看使用明细'}
         </Button>

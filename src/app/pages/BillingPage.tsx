@@ -6,28 +6,28 @@ import { BILLING_WECHAT_ID, BILLING_WECHAT_QR_URL } from '../config/billingConta
 
 const PLANS = [
   {
-    id: 'pack',
-    name: '次数包',
-    price: '¥9.9',
-    quota: '100 次 AI 生成',
-    note: '适合偶尔使用，不自动续费',
-    badge: '',
-  },
-  {
     id: 'monthly',
     name: '月卡 Pro',
     price: '¥19.9 / 月',
-    quota: '每月 800 次',
-    note: '适合备考期，按月重置',
-    badge: '适合备考期',
+    quota: '每月 2000 次',
+    note: '适合每天练表达、收词卡',
+    badge: '推荐',
   },
   {
     id: 'yearly',
     name: '年卡 Pro',
     price: '¥99 / 年',
-    quota: '每月 800 次',
-    note: '按月重置，避免一次性异常消耗',
-    badge: '更划算',
+    quota: '每月 3000 次',
+    note: '按月重置，长期使用更省',
+    badge: '最划算',
+  },
+  {
+    id: 'pack',
+    name: '次数包',
+    price: '¥9.9',
+    quota: '300 次 AI 生成',
+    note: '适合偶尔加量，不自动续费',
+    badge: '',
   },
 ];
 
@@ -235,7 +235,7 @@ export function BillingPage() {
                 <MessageCircle size={19} className="mt-0.5 text-amber-700 shrink-0" />
                 <div className="text-sm leading-6 text-amber-900">
                   <div className="font-semibold">内测阶段先用微信人工开通</div>
-                  <div>添加微信后发送当前账号邮箱和购买方案，我确认后会在后台把 AI 生成次数加到这个账号，小程序同账号可用。</div>
+                  <div>联系管理员付款后，会手动为当前账号加额度；小程序同账号可用。</div>
                 </div>
               </div>
             </div>
@@ -275,15 +275,14 @@ export function BillingPage() {
                 <CreditCard size={22} />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-slate-900">购买入口已准备</h3>
+                <h3 className="text-lg font-bold text-slate-900">联系管理员开通额度</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  你选择的是 {selectedPlan.name}（{selectedPlan.quota}）。下一步需要接入微信支付或订单回调；
-                  支付成功后，服务端会把额度写入当前账号，小程序同账号即可使用。
+                  你选择的是 {selectedPlan.name}（{selectedPlan.quota}）。
                 </p>
               </div>
             </div>
             <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-4 text-sm text-slate-600">
-              当前不会模拟加次，避免绕过真实支付。内测阶段可先添加微信完成付款确认，我会在管理员后台为已付款账号手动加次或开通月卡。
+              联系管理员付款后，会手动为当前账号加额度。
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
