@@ -51,6 +51,22 @@ function pickReviewWinner(local: VocabCard, remote: VocabCard): VocabCard {
   return String(local.timestamp || '') >= String(remote.timestamp || '') ? local : remote;
 }
 
+function mergeItemsWithReviewChunks(content: VocabCard, local: VocabCard, remote: VocabCard): VocabCard {
+  const candidates = [...(local.items || []), ...(remote.items || [])];
+  const items = (content.items || []).map((item) => {
+    if (item.reviewChunks?.length) return item;
+    const source = candidates.find((candidate) => {
+      if (!candidate.reviewChunks?.length) return false;
+      return (
+        (item.id && candidate.id === item.id) ||
+        (item.sentence && candidate.sentence === item.sentence)
+      );
+    });
+    return source ? { ...item, reviewChunks: source.reviewChunks } : item;
+  });
+  return { ...content, items };
+}
+
 function mergeVocabCards(local: VocabCard[], remote: VocabCard[]): VocabCard[] {
   const byId = new Map<string, VocabCard>();
   for (const card of remote || []) {
@@ -63,7 +79,11 @@ function mergeVocabCards(local: VocabCard[], remote: VocabCard[]): VocabCard[] {
       byId.set(card.id, card);
       continue;
     }
-    const content = card.timestamp >= existing.timestamp ? card : existing;
+    const content = mergeItemsWithReviewChunks(
+      card.timestamp >= existing.timestamp ? card : existing,
+      card,
+      existing,
+    );
     const review = pickReviewWinner(card, existing);
     byId.set(card.id, {
       ...content,
@@ -172,6 +192,13 @@ function addDays(days: number): string {
   return new Date(Date.now() + days * 24 * 60 * 60_000).toISOString();
 }
 
+const VOCAB_REVIEW_INTERVAL_DAYS = [1, 2, 4, 7, 15, 30] as const;
+
+function vocabReviewDaysForStage(stage: number): number {
+  const safeStage = Math.min(Math.max(stage, 0), VOCAB_REVIEW_INTERVAL_DAYS.length - 1);
+  return VOCAB_REVIEW_INTERVAL_DAYS[safeStage];
+}
+
 export function saveVocabCardToLocal(input: {
   headword: string;
   sense?: string;
@@ -206,7 +233,7 @@ export function saveVocabCardToLocal(input: {
     })),
     source: 'ai_word_lab',
     lastViewedAt: null,
-    nextDueAt: addDays(3),
+    nextDueAt: addDays(vocabReviewDaysForStage(0)),
     reviewStage: 0,
   };
   const current = getLearningState();
@@ -266,9 +293,8 @@ export function updateVocabReview(cardId: string, result: 'remembered' | 'strugg
   const vocabCards = current.vocabCards.map((card) => {
     if (card.id !== cardId) return card;
     if (result === 'remembered') {
-      const reviewStage = Math.min((card.reviewStage || 0) + 1, 2);
-      const interval = reviewStage === 0 ? 3 : reviewStage === 1 ? 7 : 14;
-      return { ...card, timestamp: now, lastViewedAt: now, reviewStage, nextDueAt: addDays(interval) };
+      const reviewStage = Math.min((card.reviewStage || 0) + 1, VOCAB_REVIEW_INTERVAL_DAYS.length - 1);
+      return { ...card, timestamp: now, lastViewedAt: now, reviewStage, nextDueAt: addDays(vocabReviewDaysForStage(reviewStage)) };
     }
     return { ...card, timestamp: now, lastViewedAt: now, reviewStage: 0, nextDueAt: addDays(1) };
   });

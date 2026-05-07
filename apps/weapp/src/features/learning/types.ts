@@ -35,6 +35,7 @@ export type VocabCardItem = {
   sentence: string;
   collocationsUsed: string[];
   chinese?: string;
+  reviewChunks?: string[];
 };
 
 export type VocabCardRegisterAlternative = {

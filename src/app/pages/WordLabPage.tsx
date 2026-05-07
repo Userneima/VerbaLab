@@ -122,6 +122,7 @@ export function WordLabPage() {
         sentence: it.sentence,
         collocationsUsed: it.collocationsUsed,
         chinese: it.chinese,
+        reviewChunks: it.reviewChunks,
       }));
       setPreview({
         tags: buildWordLabTags({

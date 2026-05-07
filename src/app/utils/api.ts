@@ -1,6 +1,7 @@
 export * from './api/admin';
 export * from './api/ai';
 export * from './api/invites';
+export * from './api/quota';
 export * from './api/sync';
 
 export {

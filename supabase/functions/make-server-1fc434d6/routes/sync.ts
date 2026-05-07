@@ -33,6 +33,7 @@ function mergeByIdNewerTimestamp<T extends { id: string; timestamp?: string }>(
 type SyncableVocabCard = {
   id: string;
   timestamp?: string;
+  items?: Array<{ id?: string; sentence?: string; reviewChunks?: string[] }>;
   lastViewedAt?: string | null;
   nextDueAt?: string | null;
   reviewStage?: number | null;
@@ -56,6 +57,23 @@ function pickVocabReviewWinner<T extends SyncableVocabCard>(left: T, right: T): 
   if (leftDue !== rightDue) return leftDue > rightDue ? left : right;
 
   return String(left.timestamp || "") >= String(right.timestamp || "") ? left : right;
+}
+
+function mergeVocabItemsWithReviewChunks<T extends SyncableVocabCard>(content: T, left: T, right: T): T {
+  if (!Array.isArray(content.items)) return content;
+  const candidates = [...(left.items || []), ...(right.items || [])];
+  const items = content.items.map((item) => {
+    if (Array.isArray(item.reviewChunks) && item.reviewChunks.length > 0) return item;
+    const source = candidates.find((candidate) => {
+      if (!Array.isArray(candidate.reviewChunks) || candidate.reviewChunks.length === 0) return false;
+      return (
+        (item.id && candidate.id === item.id) ||
+        (item.sentence && candidate.sentence === item.sentence)
+      );
+    });
+    return source ? { ...item, reviewChunks: source.reviewChunks } : item;
+  });
+  return { ...content, items };
 }
 
 function mergeVocabCards<T extends SyncableVocabCard>(
@@ -83,18 +101,19 @@ function mergeVocabCards<T extends SyncableVocabCard>(
         : remoteCard;
     const reviewWinner = pickVocabReviewWinner(localCard, remoteCard);
 
+    const contentWithChunks = mergeVocabItemsWithReviewChunks(contentWinner, localCard, remoteCard);
     byId.set(localCard.id, {
-      ...contentWinner,
+      ...contentWithChunks,
       lastViewedAt:
-        reviewWinner.lastViewedAt === undefined ? contentWinner.lastViewedAt ?? null : reviewWinner.lastViewedAt,
+        reviewWinner.lastViewedAt === undefined ? contentWithChunks.lastViewedAt ?? null : reviewWinner.lastViewedAt,
       nextDueAt:
-        reviewWinner.nextDueAt === undefined ? contentWinner.nextDueAt ?? null : reviewWinner.nextDueAt,
+        reviewWinner.nextDueAt === undefined ? contentWithChunks.nextDueAt ?? null : reviewWinner.nextDueAt,
       reviewStage:
         typeof reviewWinner.reviewStage === "number"
           ? reviewWinner.reviewStage
-          : (contentWinner.reviewStage ?? 0),
+          : (contentWithChunks.reviewStage ?? 0),
       timestamp: maxIsoTimestamp(
-        contentWinner.timestamp,
+        contentWithChunks.timestamp,
         reviewWinner.timestamp,
         reviewWinner.lastViewedAt,
       ),

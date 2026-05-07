@@ -8,3 +8,14 @@ scripts/.verbdata-translation-cache.json
 .DS_Store
 dist
 .next
+
+# Local payment / WeChat QR source images.
+# The production billing contact image lives at /public/assets/billing-contact.jpg.
+/微信二维码.jpg
+/public/assets/billing-wechat-qr.jpg
+*wechat*qr*.png
+*wechat*qr*.jpg
+*wechat*qr*.jpeg
+*微信*二维码*.png
+*微信*二维码*.jpg
+*微信*二维码*.jpeg

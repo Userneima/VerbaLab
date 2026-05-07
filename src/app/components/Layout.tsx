@@ -20,6 +20,7 @@ import {
   Sparkles,
   BookMarked,
   Ticket,
+  CreditCard,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppStore } from '../store/useStore';
@@ -53,6 +54,7 @@ const navItems: NavItem[] = [
     exact: false,
     badge: s => s.stats.vocabDueCount,
   },
+  { to: '/billing', label: 'AI 额度', icon: CreditCard, subtitle: 'Billing', exact: false },
 ];
 
 export function Layout() {
@@ -354,6 +356,17 @@ function LayoutInner() {
                     管理员后台
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    navigate('/billing');
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-slate-200 hover:bg-slate-700/80 transition-colors text-sm border-b border-slate-700"
+                >
+                  <CreditCard size={15} className="text-emerald-400" />
+                  AI 生成次数
+                </button>
                 <button
                   type="button"
                   onClick={async () => {

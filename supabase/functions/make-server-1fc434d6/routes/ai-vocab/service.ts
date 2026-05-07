@@ -5,6 +5,20 @@ import { buildRegisterAnalysisExample } from "./prompts.ts";
 
 export type DeepSeekCaller = typeof callDeepSeek;
 
+export function normalizeReviewChunks(raw: unknown, sentence: string): string[] | undefined {
+  const normalizedSentence = sentence.replace(/\s+/g, " ").trim();
+  if (!normalizedSentence || !Array.isArray(raw)) return undefined;
+
+  const chunks = raw
+    .map((item) => String(item || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  if (chunks.length < 2) return undefined;
+  const reconstructed = chunks.join(" ").replace(/\s+/g, " ").trim();
+  if (reconstructed !== normalizedSentence) return undefined;
+  return chunks;
+}
+
 async function enrichRegisterGuide(input: {
   headword: string;
   sense: string;
@@ -372,6 +386,7 @@ export async function generateOriginalDailyFallbackItem(
   sentence: string;
   collocationsUsed: string[];
   chinese?: string;
+  reviewChunks?: string[];
 } | null> {
   const senseFocusHint = buildSenseFocusHint({
     headword,
@@ -398,9 +413,11 @@ export async function generateOriginalDailyFallbackItem(
     "{\n" +
     '  "sentence": "English sentence",\n' +
     '  "collocationsUsed": ["phrase from whitelist used in sentence"],\n' +
-    '  "chinese": "该句中文释义"\n' +
+    '  "chinese": "该句中文释义",\n' +
+    '  "reviewChunks": ["semantic chunk 1", "semantic chunk 2", "semantic chunk 3"]\n' +
     "}\n\n" +
-    "Rules: usually 8-16 words; conversational; contractions OK when natural; one clear main clause preferred.";
+    "Rules: usually 8-16 words; conversational; contractions OK when natural; one clear main clause preferred. " +
+    "reviewChunks is required: use 2-5 word semantic chunks in original order. Joining chunks with single spaces must reconstruct the exact sentence.";
 
   const userContent =
     'Learner original wording: "' +
@@ -421,6 +438,7 @@ export async function generateOriginalDailyFallbackItem(
       sentence?: string;
       collocationsUsed?: unknown;
       chinese?: string;
+      reviewChunks?: unknown;
     };
     const sentence = String(parsed?.sentence || "").trim();
     if (!sentence) return null;
@@ -431,6 +449,7 @@ export async function generateOriginalDailyFallbackItem(
       sentence,
       collocationsUsed,
       chinese: String(parsed?.chinese || "").trim() || undefined,
+      reviewChunks: normalizeReviewChunks(parsed?.reviewChunks, sentence),
     };
   } catch (e) {
     if (isAiUsageBlockedError(e)) throw e;

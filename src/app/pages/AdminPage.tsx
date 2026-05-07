@@ -1,28 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router';
-import { Activity, AlertTriangle, BarChart3, Loader2, RefreshCw, Shield, Ticket, Unlock, type LucideIcon } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, Loader2, RefreshCw, Search, Shield, Ticket, Unlock, WalletCards, type LucideIcon } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import { isInviteAdminEmail } from '../utils/inviteAdmin';
 import {
+  grantAdminUserQuota,
   getAdminAlerts,
   getAdminInviteUsage,
   getAdminOverview,
+  getAdminQuotaUsers,
   resolveAdminAlert,
   unblockAdminUser,
   type AdminAlert,
   type AdminInviteUsageRow,
   type AdminOverview,
+  type AdminQuotaUserRow,
 } from '../utils/api';
 import { InviteCodesPage } from './InviteCodesPage';
 
-type AdminTab = 'overview' | 'invites' | 'usage' | 'alerts';
+type AdminTab = 'overview' | 'invites' | 'usage' | 'quota' | 'alerts';
 
 const TABS: Array<{ key: AdminTab; label: string; icon: LucideIcon }> = [
   { key: 'overview', label: '产品指标', icon: BarChart3 },
   { key: 'invites', label: '邀请码', icon: Ticket },
   { key: 'usage', label: '账号用量', icon: Activity },
+  { key: 'quota', label: '额度管理', icon: WalletCards },
   { key: 'alerts', label: '异常报警', icon: AlertTriangle },
 ];
+
+type QuotaGrantPayload = {
+  grantType: 'pack' | 'gift' | 'monthly' | 'yearly';
+  amount?: number;
+  monthlyLimit?: number;
+  expiresAt?: string | null;
+  note?: string;
+};
 
 function formatNumber(value: number | null | undefined) {
   return new Intl.NumberFormat('zh-CN').format(Number(value || 0));
@@ -122,10 +134,12 @@ function OverviewPanel({ overview }: { overview: AdminOverview | null }) {
 function UsagePanel({
   rows,
   onUnblock,
+  onGrantQuota,
   actionLoading,
 }: {
   rows: AdminInviteUsageRow[];
   onUnblock: (userId: string) => void;
+  onGrantQuota: (userId: string, grantType: 'pack' | 'monthly') => void;
   actionLoading: string | null;
 }) {
   return (
@@ -144,6 +158,7 @@ function UsagePanel({
               <th className="px-5 py-3">7 日 token</th>
               <th className="px-5 py-3">主要功能</th>
               <th className="px-5 py-3">状态</th>
+              <th className="px-5 py-3">额度</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -185,12 +200,253 @@ function UsagePanel({
                     </span>
                   )}
                 </td>
+                <td className="px-5 py-4">
+                  {row.userId ? (
+                    <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onGrantQuota(row.userId!, 'pack')}
+                        disabled={actionLoading === `quota-pack:${row.userId}`}
+                        className="rounded-full border border-emerald-200 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        加 100 次
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onGrantQuota(row.userId!, 'monthly')}
+                        disabled={actionLoading === `quota-monthly:${row.userId}`}
+                        className="rounded-full border border-indigo-200 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                      >
+                        开月卡
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-slate-400">未绑定账号</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
     </section>
+  );
+}
+
+const GRANT_PRESETS: Array<{
+  key: string;
+  label: string;
+  helper: string;
+  payload: QuotaGrantPayload;
+}> = [
+  {
+    key: 'pack100',
+    label: '次数包 100 次',
+    helper: '对应 ¥9.9 / 100 次，直接增加额外可用次数。',
+    payload: { grantType: 'pack', amount: 100 },
+  },
+  {
+    key: 'monthly800',
+    label: '月卡 30 天',
+    helper: '本月 800 次，30 天后到期；适合手动开通月卡。',
+    payload: { grantType: 'monthly', monthlyLimit: 800 },
+  },
+  {
+    key: 'yearly800',
+    label: '年卡 365 天',
+    helper: '每月 800 次，365 天后到期；每月自动重置已用量。',
+    payload: { grantType: 'yearly', monthlyLimit: 800 },
+  },
+  {
+    key: 'gift30',
+    label: '赠送 30 次',
+    helper: '用于补偿、测试或小范围内测赠送。',
+    payload: { grantType: 'gift', amount: 30 },
+  },
+];
+
+function QuotaPanel({
+  rows,
+  query,
+  onQueryChange,
+  onSearch,
+  onGrantQuota,
+  actionLoading,
+}: {
+  rows: AdminQuotaUserRow[];
+  query: string;
+  onQueryChange: (query: string) => void;
+  onSearch: () => void;
+  onGrantQuota: (userId: string, payload: QuotaGrantPayload) => void;
+  actionLoading: string | null;
+}) {
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [presetKey, setPresetKey] = useState(GRANT_PRESETS[0].key);
+  const [note, setNote] = useState('');
+
+  const selectedPreset = GRANT_PRESETS.find((preset) => preset.key === presetKey) || GRANT_PRESETS[0];
+  const selectedUser = rows.find((row) => row.userId === selectedUserId) || null;
+
+  const submitGrant = () => {
+    if (!selectedUser) return;
+    const noteText = note.trim() || `微信人工开通：${selectedPreset.label}`;
+    const confirmed = window.confirm(
+      `确认给 ${selectedUser.email || selectedUser.userId} 开通「${selectedPreset.label}」？\n备注：${noteText}`
+    );
+    if (!confirmed) return;
+    onGrantQuota(selectedUser.userId, { ...selectedPreset.payload, note: noteText });
+  };
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">账号额度管理</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              用邮箱或用户 ID 查账号；微信收款确认后，在这里加次数、开月卡或年卡。
+            </p>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+            <label className="relative flex-1 lg:w-80">
+              <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') onSearch();
+                }}
+                placeholder="搜索邮箱或用户 ID"
+                className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm font-medium text-slate-900 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={onSearch}
+              className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
+            >
+              查找账号
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h3 className="text-sm font-bold text-slate-900">账号列表</h3>
+            <p className="mt-1 text-xs text-slate-500">选择一个账号后，在右侧执行额度调整。</p>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {rows.length === 0 ? (
+              <div className="p-6 text-sm text-slate-500">没有找到账号。</div>
+            ) : rows.map((row) => {
+              const active = row.userId === selectedUserId;
+              return (
+                <button
+                  key={row.userId}
+                  type="button"
+                  onClick={() => setSelectedUserId(row.userId)}
+                  className={`block w-full px-5 py-4 text-left transition-colors ${
+                    active ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-bold text-slate-900">{row.email || '未绑定邮箱'}</div>
+                      <div className="mt-1 truncate font-mono text-xs text-slate-400">{row.userId}</div>
+                      <div className="mt-1 text-xs text-slate-500">最近登录：{formatTime(row.lastSignInAt)}</div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center md:w-80">
+                      <div className="rounded-2xl bg-slate-50 px-3 py-2">
+                        <div className="text-xs text-slate-500">可用</div>
+                        <div className="text-base font-black text-slate-900">{row.summary.totalRemaining}</div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 px-3 py-2">
+                        <div className="text-xs text-slate-500">额外</div>
+                        <div className="text-base font-black text-emerald-700">{row.summary.extraRemaining}</div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 px-3 py-2">
+                        <div className="text-xs text-slate-500">方案</div>
+                        <div className="truncate text-sm font-bold text-indigo-700">{row.summary.planLabel}</div>
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-bold text-slate-900">开通 / 调整额度</h3>
+          {selectedUser ? (
+            <div className="mt-4 space-y-4">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <div className="text-xs font-semibold text-slate-500">当前账号</div>
+                <div className="mt-1 truncate text-sm font-bold text-slate-900">{selectedUser.email || selectedUser.userId}</div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-xl bg-white p-3">
+                    <div className="text-xs text-slate-500">总可用</div>
+                    <div className="font-black text-slate-900">{selectedUser.summary.totalRemaining}</div>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <div className="text-xs text-slate-500">次数包</div>
+                    <div className="font-black text-emerald-700">{selectedUser.summary.packRemaining}</div>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <div className="text-xs text-slate-500">月额度剩余</div>
+                    <div className="font-black text-indigo-700">{selectedUser.summary.planMonthlyRemaining}</div>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <div className="text-xs text-slate-500">到期</div>
+                    <div className="text-xs font-bold text-slate-700">{formatTime(selectedUser.summary.planExpiresAt)}</div>
+                  </div>
+                </div>
+              </div>
+
+              <label className="block">
+                <span className="text-xs font-bold text-slate-500">选择开通内容</span>
+                <select
+                  value={presetKey}
+                  onChange={(event) => setPresetKey(event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50"
+                >
+                  {GRANT_PRESETS.map((preset) => (
+                    <option key={preset.key} value={preset.key}>{preset.label}</option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs leading-5 text-slate-500">{selectedPreset.helper}</span>
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-bold text-slate-500">备注</span>
+                <textarea
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  placeholder="例如：微信已付款，¥9.9 次数包"
+                  className="mt-2 min-h-24 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm leading-6 text-slate-900 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-50"
+                />
+              </label>
+
+              <button
+                type="button"
+                onClick={submitGrant}
+                disabled={actionLoading === `quota:${selectedUser.userId}`}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {actionLoading === `quota:${selectedUser.userId}` && <Loader2 size={16} className="animate-spin" />}
+                确认开通额度
+              </button>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-500">
+              先在左侧选择账号。额度调整只做增量或开通方案，不会直接覆盖用户已有的学习资产。
+            </div>
+          )}
+        </aside>
+      </div>
+    </div>
   );
 }
 
@@ -266,6 +522,9 @@ export function AdminPage() {
   const activeTab: AdminTab = tabParam && TABS.some(tab => tab.key === tabParam) ? tabParam : 'overview';
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [usageRows, setUsageRows] = useState<AdminInviteUsageRow[]>([]);
+  const [quotaRows, setQuotaRows] = useState<AdminQuotaUserRow[]>([]);
+  const [quotaQuery, setQuotaQuery] = useState('');
+  const [quotaSearchQuery, setQuotaSearchQuery] = useState('');
   const [alerts, setAlerts] = useState<AdminAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -279,13 +538,15 @@ export function AdminPage() {
     else setLoading(true);
     setError(null);
     try {
-      const [nextOverview, nextUsage, nextAlerts] = await Promise.all([
+      const [nextOverview, nextUsage, nextQuotaUsers, nextAlerts] = await Promise.all([
         getAdminOverview(),
         getAdminInviteUsage(),
+        getAdminQuotaUsers(quotaSearchQuery),
         getAdminAlerts(),
       ]);
       setOverview(nextOverview);
       setUsageRows(nextUsage.rows);
+      setQuotaRows(nextQuotaUsers.rows);
       setAlerts(nextAlerts.alerts);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '加载管理员后台失败');
@@ -293,7 +554,7 @@ export function AdminPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [canManage]);
+  }, [canManage, quotaSearchQuery]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -310,6 +571,14 @@ export function AdminPage() {
     const next = new URLSearchParams(params);
     next.set('tab', tab);
     setParams(next, { replace: true });
+  };
+
+  const handleQuotaSearch = () => {
+    if (quotaQuery.trim() === quotaSearchQuery.trim()) {
+      void loadAdminData(true);
+      return;
+    }
+    setQuotaSearchQuery(quotaQuery.trim());
   };
 
   const handleResolve = async (alertId: string) => {
@@ -331,6 +600,37 @@ export function AdminPage() {
       await loadAdminData(true);
     } catch (unblockError) {
       setError(unblockError instanceof Error ? unblockError.message : '解除冻结失败');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleQuickGrantQuota = async (userId: string, grantType: 'pack' | 'monthly') => {
+    const actionKey = `quota-${grantType}:${userId}`;
+    setActionLoading(actionKey);
+    try {
+      await grantAdminUserQuota(
+        userId,
+        grantType === 'pack'
+          ? { grantType: 'pack', amount: 100, note: 'manual admin grant' }
+          : { grantType: 'monthly', monthlyLimit: 800, note: 'manual admin monthly plan' }
+      );
+      await loadAdminData(true);
+    } catch (grantError) {
+      setError(grantError instanceof Error ? grantError.message : '开通额度失败');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleManagedGrantQuota = async (userId: string, payload: QuotaGrantPayload) => {
+    const actionKey = `quota:${userId}`;
+    setActionLoading(actionKey);
+    try {
+      await grantAdminUserQuota(userId, payload);
+      await loadAdminData(true);
+    } catch (grantError) {
+      setError(grantError instanceof Error ? grantError.message : '开通额度失败');
     } finally {
       setActionLoading(null);
     }
@@ -406,7 +706,22 @@ export function AdminPage() {
             {activeTab === 'overview' && <OverviewPanel overview={overview} />}
             {activeTab === 'invites' && <InviteCodesPage embedded />}
             {activeTab === 'usage' && (
-              <UsagePanel rows={usageRows} onUnblock={handleUnblock} actionLoading={actionLoading} />
+              <UsagePanel
+                rows={usageRows}
+                onUnblock={handleUnblock}
+                onGrantQuota={handleQuickGrantQuota}
+                actionLoading={actionLoading}
+              />
+            )}
+            {activeTab === 'quota' && (
+              <QuotaPanel
+                rows={quotaRows}
+                query={quotaQuery}
+                onQueryChange={setQuotaQuery}
+                onSearch={handleQuotaSearch}
+                onGrantQuota={handleManagedGrantQuota}
+                actionLoading={actionLoading}
+              />
             )}
             {activeTab === 'alerts' && (
               <AlertsPanel

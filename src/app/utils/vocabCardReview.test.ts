@@ -24,13 +24,23 @@ describe('vocabCardReview', () => {
     const d0 = computeNextDueAfterView(0);
     expect(new Date(d0).getTime() - fixed.getTime()).toBe(VOCAB_REVIEW_INTERVAL_DAYS[0] * 86400000);
     const d2 = computeNextDueAfterView(99);
-    expect(new Date(d2).getTime() - fixed.getTime()).toBe(VOCAB_REVIEW_INTERVAL_DAYS[2] * 86400000);
+    expect(new Date(d2).getTime() - fixed.getTime()).toBe(
+      VOCAB_REVIEW_INTERVAL_DAYS[VOCAB_REVIEW_INTERVAL_DAYS.length - 1] * 86400000,
+    );
   });
 
   it('computeAfterRemembered advances stage and sets next due', () => {
     const { reviewStage, nextDueAt } = computeAfterRemembered(0);
     expect(reviewStage).toBe(1);
     expect(nextDueAt > fixed.toISOString()).toBe(true);
+  });
+
+  it('computeAfterRemembered caps at the longest interval stage', () => {
+    const { reviewStage, nextDueAt } = computeAfterRemembered(99);
+    expect(reviewStage).toBe(VOCAB_REVIEW_INTERVAL_DAYS.length - 1);
+    expect(new Date(nextDueAt).getTime() - fixed.getTime()).toBe(
+      VOCAB_REVIEW_INTERVAL_DAYS[VOCAB_REVIEW_INTERVAL_DAYS.length - 1] * 86400000,
+    );
   });
 
   it('computeAfterStruggled resets to stage 0 and ~24h', () => {

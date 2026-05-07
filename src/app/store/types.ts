@@ -69,6 +69,7 @@ export interface VocabCardItem {
   sentence: string;
   collocationsUsed: string[];
   chinese?: string;
+  reviewChunks?: string[];
 }
 
 export interface VocabCardRegisterAlternative {
@@ -115,6 +116,7 @@ export interface LearningProgress {
 export function normalizeVocabCardItem(raw: unknown, idx: number, cardId: string): VocabCardItem {
   const r = raw as Record<string, unknown>;
   const coll = r?.collocationsUsed;
+  const reviewChunks = r?.reviewChunks;
   return {
     id: String(r?.id || `${cardId}-i${idx}`),
     questionId: String(r?.questionId || ''),
@@ -124,6 +126,9 @@ export function normalizeVocabCardItem(raw: unknown, idx: number, cardId: string
     sentence: String(r?.sentence || ''),
     collocationsUsed: Array.isArray(coll) ? coll.map(x => String(x)) : [],
     chinese: r?.chinese ? String(r.chinese) : undefined,
+    reviewChunks: Array.isArray(reviewChunks)
+      ? reviewChunks.map((x) => String(x).trim()).filter(Boolean)
+      : undefined,
   };
 }
 

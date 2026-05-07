@@ -5,6 +5,7 @@ type VocabApiItem = {
   sentence?: string;
   collocationsUsed?: string[];
   chinese?: string;
+  reviewChunks?: string[];
 };
 
 export type GeneratedVocabCard = {
@@ -93,6 +94,9 @@ export function mapGeneratedItems(items: VocabApiItem[]): Array<Omit<VocabCardIt
         ? item.collocationsUsed.map((phrase) => phrase.trim()).filter(Boolean)
         : [],
       chinese: item.chinese?.trim() || undefined,
+      reviewChunks: Array.isArray(item.reviewChunks)
+        ? item.reviewChunks.map((chunk) => chunk.trim()).filter(Boolean)
+        : undefined,
     }));
 }
 

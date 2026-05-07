@@ -33,6 +33,7 @@
 - Edge Function：`docs/edge-function-route-map.md`
 - 邀请码注册：`docs/invite-registration.md`
 - 微信小程序迁移：`docs/wechat-miniprogram-migration.md`
+- 产品卡点 / 断点测试：`docs/product-gap-test-plan-2026-04-28.md`
 - 管理员观测 SQL：`docs/sql/admin-observability.sql`
 
 ## 不要优先读取

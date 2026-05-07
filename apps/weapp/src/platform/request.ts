@@ -1,5 +1,6 @@
 import { FUNCTION_BASE_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
 import {
+  clearAuthState,
   getAuthToken,
   getRefreshToken,
   getUserProfile,
@@ -23,6 +24,28 @@ type SupabaseRefreshResponse = {
     email?: string;
   };
 };
+
+function normalizeRequestFailMessage(errMsg?: string): string {
+  const raw = errMsg || 'request:fail';
+
+  if (raw.includes('url not in domain list')) {
+    return '网络请求被小程序拦截：请在微信公众平台 request 合法域名里加入 https://ztlrrovudbkmqqjaqhfu.supabase.co，并在开发者工具里刷新项目配置。';
+  }
+
+  if (raw.includes('timeout')) {
+    return '请求超时：后端响应太慢或当前网络不稳定，请稍后再试。';
+  }
+
+  if (raw.includes('ERR_NAME_NOT_RESOLVED') || raw.includes('resolve')) {
+    return '域名解析失败：当前网络无法访问 Supabase 服务，请切换网络后再试。';
+  }
+
+  if (raw.includes('ERR_CONNECTION') || raw.includes('abort') || raw === 'request:fail') {
+    return `网络请求失败：小程序没有连上 AI 服务。请检查合法域名、开发者工具“不校验合法域名”设置或当前网络。原始错误：${raw}`;
+  }
+
+  return `网络请求失败：${raw}`;
+}
 
 function refreshSupabaseSession(): Promise<string | null> {
   const refreshToken = getRefreshToken();
@@ -77,6 +100,7 @@ function sendRequest<T>(
       data,
       header: {
         'Content-Type': 'application/json',
+        'X-VerbaLab-Client': 'weapp',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       success(res) {
@@ -94,7 +118,7 @@ function sendRequest<T>(
         resolve({ ok: false, statusCode: res.statusCode, message });
       },
       fail(err) {
-        reject(new Error(err.errMsg || 'Network request failed'));
+        reject(new Error(normalizeRequestFailMessage(err.errMsg)));
       },
     });
   });
@@ -111,6 +135,7 @@ export async function requestJson<T>(options: RequestOptions): Promise<T> {
       if (retry.ok) return retry.data;
       throw new Error(retry.message);
     }
+    clearAuthState();
   }
 
   throw new Error(first.message);

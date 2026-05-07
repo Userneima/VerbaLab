@@ -169,6 +169,7 @@ export async function aiGenerateVocabCard(payload: {
     sentence: string;
     collocationsUsed: string[];
     chinese?: string;
+    reviewChunks?: string[];
   }>;
 }> {
   try {
@@ -185,6 +186,7 @@ export async function aiGenerateVocabCard(payload: {
         sentence: string;
         collocationsUsed: string[];
         chinese?: string;
+        reviewChunks?: string[];
       }>;
     }>('/ai/vocab-card', payload);
     trackProductEvent({
@@ -250,6 +252,7 @@ export async function aiGenerateVocabCardOriginalDaily(payload: {
     sentence: string;
     collocationsUsed: string[];
     chinese?: string;
+    reviewChunks?: string[];
   };
 }> {
   try {

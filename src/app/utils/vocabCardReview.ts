@@ -15,14 +15,14 @@ export function computeNextDueAfterView(stage: number): string {
   return new Date(Date.now() + days * MS_PER_DAY).toISOString();
 }
 
-/** 新卡片首次进入复习队列：默认 3 天后提醒 */
+/** 新卡片首次进入复习队列：次日再见，避免刚保存就被要求复习 */
 export function initialNextDueAt(): string {
   return computeNextDueAfterView(0);
 }
 
-/** 「记住了」：阶段 +1（上限 2），按新阶段给间隔 */
+/** 「记住了」：阶段 +1，按新阶段给间隔 */
 export function computeAfterRemembered(stage: number): { reviewStage: number; nextDueAt: string } {
-  const reviewStage = Math.min(stage + 1, 2);
+  const reviewStage = Math.min(stage + 1, VOCAB_REVIEW_INTERVAL_DAYS.length - 1);
   const days = daysForStage(reviewStage);
   return {
     reviewStage,

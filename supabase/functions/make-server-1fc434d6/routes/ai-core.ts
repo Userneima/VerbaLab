@@ -1,6 +1,7 @@
 import type { Hono } from "npm:hono";
 import { enforceRateLimit, getClientIp } from "../platform.ts";
 import { aiUsageBlockedResponse, callDeepSeek, callTrackedDeepSeek, parseJsonFromModel } from "./ai-shared.ts";
+import { consumeQuotaForWeapp, ensureQuotaForWeapp } from "../quota.ts";
 
 export function registerCoreAiRoutes(app: Hono) {
   const grammarCheckHandler = async (c: any) => {
@@ -177,6 +178,9 @@ export function registerCoreAiRoutes(app: Hono) {
         return c.json({ error: "chineseThought is required" }, 400);
       }
 
+      const quota = await ensureQuotaForWeapp(c, "expression_guide");
+      if (!quota.ok) return quota.response;
+
       const corpusContext = (corpusSentences || []).slice(0, 20).map(
         (s: any) => `- "${s.userSentence}" (collocation: ${s.collocation})`,
       ).join("\n");
@@ -225,6 +229,9 @@ export function registerCoreAiRoutes(app: Hono) {
         })
         .filter(Boolean)
         .slice(0, 3);
+
+      const consume = await consumeQuotaForWeapp(c, "expression_guide");
+      if (!consume.ok) return consume.response;
 
       return c.json({
         type: parsed.type === "corpus" || parsed.type === "verb" ? parsed.type : "paraphrase",
@@ -335,6 +342,243 @@ export function registerCoreAiRoutes(app: Hono) {
     } catch (err) {
       console.log(`Error in public stuck suggestion: ${err}`);
       return c.json({ error: `Stuck suggestion failed: ${err}` }, 500);
+    }
+  });
+
+  app.post("/make-server-1fc434d6/public/expression-inspirations", async (c) => {
+    try {
+      const ip = getClientIp(c);
+      const shortWindow = await enforceRateLimit(`public-expression-inspirations:${ip}:10m`, 10, 10 * 60_000);
+      if (!shortWindow.ok) {
+        return c.json(
+          { error: "请求太频繁，请稍后再试", retryAfterSec: shortWindow.retryAfterSec },
+          429,
+        );
+      }
+      const dayWindow = await enforceRateLimit(`public-expression-inspirations:${ip}:1d`, 50, 24 * 60 * 60_000);
+      if (!dayWindow.ok) {
+        return c.json(
+          { error: "今日体验次数已用完，请稍后再试", retryAfterSec: dayWindow.retryAfterSec },
+          429,
+        );
+      }
+
+      const { contextZh } = await c.req.json();
+      const context = String(contextZh || "").trim();
+      if (!context || context.length > 240) {
+        return c.json({ error: "contextZh is required, max 240 chars" }, 400);
+      }
+
+      const systemPrompt =
+        "你是一个帮助中国英语学习者找到表达切口的教练。\n\n" +
+        "用户不一定知道自己想说什么，只会告诉你最近在忙什么、遇到什么事、或者处在什么状态。\n" +
+        "你要把这些背景拆成 4 个适合拿去练英语表达的中文想法。\n\n" +
+        "只输出 JSON，不要 markdown：\n" +
+        "{\n" +
+        "  \"inspirations\": [\n" +
+        "    { \"chineseThought\": \"一句用户可能想表达的中文\", \"angleZh\": \"很短的场景角度\" }\n" +
+        "  ]\n" +
+        "}\n\n" +
+        "规则：\n" +
+        "- chineseThought 必须是第一人称或贴近日常表达的中文句子，可以直接放进“想说但不会说”的输入框。\n" +
+        "- 每条 12-36 个中文字符，具体、可说、不要空泛。\n" +
+        "- 不要生成英文，不要解释语法，不要输出学习建议。\n" +
+        "- 覆盖不同角度：情绪、困难、进展、请求/沟通、复盘，择其 4 个。\n" +
+        "- 不要编造过多背景，只基于用户输入自然延展。";
+
+      const result = await callDeepSeek(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `我最近的情况：${context}` },
+        ],
+        0.6,
+        768,
+      );
+
+      let parsed;
+      try {
+        parsed = parseJsonFromModel(result) as Record<string, unknown>;
+      } catch {
+        parsed = { inspirations: [] };
+      }
+
+      const rawInspirations = Array.isArray(parsed.inspirations) ? parsed.inspirations : [];
+      const inspirations = rawInspirations
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+          const row = item as Record<string, unknown>;
+          const chineseThought = String(row.chineseThought || "").trim();
+          if (!chineseThought) return null;
+          const angleZh = String(row.angleZh || "").trim();
+          return {
+            chineseThought: chineseThought.slice(0, 80),
+            angleZh: angleZh.slice(0, 24) || undefined,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 4);
+
+      if (!inspirations.length) {
+        return c.json({ error: "没有生成有效表达灵感，请换一种描述再试" }, 500);
+      }
+
+      return c.json({ inspirations });
+    } catch (err) {
+      console.log(`Error in expression inspirations: ${err}`);
+      return c.json({ error: `Expression inspirations failed: ${err}` }, 500);
+    }
+  });
+
+  app.post("/make-server-1fc434d6/ai/expression-inspirations", async (c) => {
+    try {
+      const { contextZh } = await c.req.json();
+      const context = String(contextZh || "").trim();
+      if (!context || context.length > 240) {
+        return c.json({ error: "contextZh is required, max 240 chars" }, 400);
+      }
+
+      const quota = await ensureQuotaForWeapp(c, "expression_inspiration");
+      if (!quota.ok) return quota.response;
+
+      const systemPrompt =
+        "你是一个帮助中国英语学习者找到表达切口的教练。\n\n" +
+        "用户不一定知道自己想说什么，只会告诉你最近在忙什么、遇到什么事、或者处在什么状态。\n" +
+        "你要把这些背景拆成 4 个适合拿去练英语表达的中文想法。\n\n" +
+        "只输出 JSON，不要 markdown：\n" +
+        "{\n" +
+        "  \"inspirations\": [\n" +
+        "    { \"chineseThought\": \"一句用户可能想表达的中文\", \"angleZh\": \"很短的场景角度\" }\n" +
+        "  ]\n" +
+        "}\n\n" +
+        "规则：\n" +
+        "- chineseThought 必须是第一人称或贴近日常表达的中文句子，可以直接放进“想说但不会说”的输入框。\n" +
+        "- 每条 12-36 个中文字符，具体、可说、不要空泛。\n" +
+        "- 不要生成英文，不要解释语法，不要输出学习建议。\n" +
+        "- 覆盖不同角度：情绪、困难、进展、请求/沟通、复盘，择其 4 个。\n" +
+        "- 不要编造过多背景，只基于用户输入自然延展。";
+
+      const result = await callTrackedDeepSeek(
+        c,
+        "expression_inspiration",
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `我最近的情况：${context}` },
+        ],
+        0.6,
+        768,
+      );
+
+      let parsed;
+      try {
+        parsed = parseJsonFromModel(result) as Record<string, unknown>;
+      } catch {
+        parsed = { inspirations: [] };
+      }
+
+      const rawInspirations = Array.isArray(parsed.inspirations) ? parsed.inspirations : [];
+      const inspirations = rawInspirations
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+          const row = item as Record<string, unknown>;
+          const chineseThought = String(row.chineseThought || "").trim();
+          if (!chineseThought) return null;
+          const angleZh = String(row.angleZh || "").trim();
+          return {
+            chineseThought: chineseThought.slice(0, 80),
+            angleZh: angleZh.slice(0, 24) || undefined,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 4);
+
+      if (!inspirations.length) {
+        return c.json({ error: "没有生成有效表达灵感，请换一种描述再试" }, 500);
+      }
+
+      const consume = await consumeQuotaForWeapp(c, "expression_inspiration");
+      if (!consume.ok) return consume.response;
+      return c.json({ inspirations });
+    } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
+      console.log(`Error in authenticated expression inspirations: ${err}`);
+      return c.json({ error: `Expression inspirations failed: ${err}` }, 500);
+    }
+  });
+  app.post("/ai/expression-inspirations", async (c) => {
+    try {
+      const { contextZh } = await c.req.json();
+      const context = String(contextZh || "").trim();
+      if (!context || context.length > 240) {
+        return c.json({ error: "contextZh is required, max 240 chars" }, 400);
+      }
+
+      const quota = await ensureQuotaForWeapp(c, "expression_inspiration");
+      if (!quota.ok) return quota.response;
+
+      const systemPrompt =
+        "你是一个帮助中国英语学习者找到表达切口的教练。\n\n" +
+        "用户不一定知道自己想说什么，只会告诉你最近在忙什么、遇到什么事、或者处在什么状态。\n" +
+        "你要把这些背景拆成 4 个适合拿去练英语表达的中文想法。\n\n" +
+        "只输出 JSON，不要 markdown：\n" +
+        "{\n" +
+        "  \"inspirations\": [\n" +
+        "    { \"chineseThought\": \"一句用户可能想表达的中文\", \"angleZh\": \"很短的场景角度\" }\n" +
+        "  ]\n" +
+        "}\n\n" +
+        "规则：\n" +
+        "- chineseThought 必须是第一人称或贴近日常表达的中文句子，可以直接放进“想说但不会说”的输入框。\n" +
+        "- 每条 12-36 个中文字符，具体、可说、不要空泛。\n" +
+        "- 不要生成英文，不要解释语法，不要输出学习建议。\n" +
+        "- 覆盖不同角度：情绪、困难、进展、请求/沟通、复盘，择其 4 个。\n" +
+        "- 不要编造过多背景，只基于用户输入自然延展。";
+
+      const result = await callTrackedDeepSeek(
+        c,
+        "expression_inspiration",
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `我最近的情况：${context}` },
+        ],
+        0.6,
+        768,
+      );
+
+      let parsed;
+      try {
+        parsed = parseJsonFromModel(result) as Record<string, unknown>;
+      } catch {
+        parsed = { inspirations: [] };
+      }
+
+      const rawInspirations = Array.isArray(parsed.inspirations) ? parsed.inspirations : [];
+      const inspirations = rawInspirations
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+          const row = item as Record<string, unknown>;
+          const chineseThought = String(row.chineseThought || "").trim();
+          if (!chineseThought) return null;
+          const angleZh = String(row.angleZh || "").trim();
+          return {
+            chineseThought: chineseThought.slice(0, 80),
+            angleZh: angleZh.slice(0, 24) || undefined,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 4);
+
+      if (!inspirations.length) {
+        return c.json({ error: "没有生成有效表达灵感，请换一种描述再试" }, 500);
+      }
+
+      const consume = await consumeQuotaForWeapp(c, "expression_inspiration");
+      if (!consume.ok) return consume.response;
+      return c.json({ inspirations });
+    } catch (err) {
+      const blocked = aiUsageBlockedResponse(c, err);
+      if (blocked) return blocked;
+      console.log(`Error in authenticated expression inspirations: ${err}`);
+      return c.json({ error: `Expression inspirations failed: ${err}` }, 500);
     }
   });
 

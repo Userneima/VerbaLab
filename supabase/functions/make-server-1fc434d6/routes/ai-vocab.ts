@@ -1,7 +1,8 @@
 import type { Hono } from "npm:hono";
 import { aiUsageBlockedResponse, callTrackedDeepSeek, parseJsonFromModel } from "./ai-shared.ts";
 import { buildVocabCardGenerationPrompt } from "./ai-vocab/prompts.ts";
-import { assessSpokenRegister, generateOriginalDailyFallbackItem, type DeepSeekCaller } from "./ai-vocab/service.ts";
+import { assessSpokenRegister, generateOriginalDailyFallbackItem, normalizeReviewChunks, type DeepSeekCaller } from "./ai-vocab/service.ts";
+import { consumeQuotaForWeapp, ensureQuotaForWeapp } from "../quota.ts";
 
 export function registerVocabAiRoutes(app: Hono) {
   const makeTrackedCaller = (c: any, feature: string): DeepSeekCaller =>
@@ -17,6 +18,9 @@ export function registerVocabAiRoutes(app: Hono) {
 
       if (!headword) return c.json({ error: "headword is required" }, 400);
       if (collocations.length < 1) return c.json({ error: "collocations array is required" }, 400);
+
+      const quota = await ensureQuotaForWeapp(c, "vocab_card");
+      if (!quota.ok) return quota.response;
 
       const vocabModel = Deno.env.get("DEEPSEEK_VOCAB_MODEL") || Deno.env.get("DEEPSEEK_MODEL") || "deepseek-chat";
       const reg = await assessSpokenRegister(
@@ -71,6 +75,7 @@ export function registerVocabAiRoutes(app: Hono) {
           ? it.collocationsUsed.map((x: any) => String(x))
           : [],
         chinese: String(it?.chinese || "").trim() || undefined,
+        reviewChunks: normalizeReviewChunks(it?.reviewChunks, String(it?.sentence || "").trim()),
       });
 
       const first = rawItems.find((it: any) => it && String(it.sentence || "").trim());
@@ -93,6 +98,9 @@ export function registerVocabAiRoutes(app: Hono) {
         );
         if (fb) itemsOut.push(fb);
       }
+
+      const consume = await consumeQuotaForWeapp(c, "vocab_card");
+      if (!consume.ok) return consume.response;
 
       return c.json({
         headword,

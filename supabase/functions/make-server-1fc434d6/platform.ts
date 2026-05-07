@@ -331,7 +331,7 @@ export function applyPlatformMiddleware(app: Hono) {
         if (isLocalhostOrigin(origin)) return origin;
         return "";
       },
-      allowHeaders: ["Content-Type", "Authorization", "apikey"],
+      allowHeaders: ["Content-Type", "Authorization", "apikey", "X-VerbaLab-Client"],
       allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       exposeHeaders: ["Content-Length"],
       maxAge: 600,

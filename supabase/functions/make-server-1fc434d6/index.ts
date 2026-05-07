@@ -5,6 +5,7 @@ import { registerAdminRoutes } from "./routes/admin.ts";
 import { registerVocabAiRoutes } from "./routes/ai-vocab.ts";
 import { registerAuthRoutes } from "./routes/auth.ts";
 import { registerInviteRoutes } from "./routes/invites.ts";
+import { registerQuotaRoutes } from "./routes/quota.ts";
 import { registerSpeechRoutes } from "./routes/speech.ts";
 import { registerSyncRoutes } from "./routes/sync.ts";
 
@@ -22,6 +23,7 @@ app.get("/make-server-1fc434d6/health", (c) =>
 registerAuthRoutes(app);
 registerInviteRoutes(app);
 registerAdminRoutes(app);
+registerQuotaRoutes(app);
 registerSyncRoutes(app);
 registerSpeechRoutes(app);
 registerCoreAiRoutes(app);

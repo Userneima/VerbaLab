@@ -198,7 +198,8 @@ export function buildVocabCardGenerationPrompt(input: {
     "    {\n" +
     '      "sentence": "English sentence",\n' +
     '      "collocationsUsed": ["phrase from whitelist used in sentence"],\n' +
-    '      "chinese": "该句中文释义"\n' +
+    '      "chinese": "该句中文释义",\n' +
+    '      "reviewChunks": ["semantic chunk 1", "semantic chunk 2", "semantic chunk 3"]\n' +
     "    }\n" +
     "  ]\n" +
     "}\n\n" +
@@ -209,6 +210,11 @@ export function buildVocabCardGenerationPrompt(input: {
     "- Prefer conversational wording and contractions when natural (I'm, it's, don't, can't).\n" +
     "- Do NOT frame as an answer to a test question; standalone real-life lines.\n" +
     "- collocationsUsed must be non-empty for each item; phrases must appear in the sentence naturally.\n" +
+    "- reviewChunks is REQUIRED for each item. It is used for a sentence reconstruction review game.\n" +
+    "- reviewChunks must be in the original sentence order. Joining reviewChunks with single spaces must reconstruct the exact sentence, including punctuation.\n" +
+    "- Each review chunk should usually contain 2-5 words. Keep natural phrases, phrasal verbs, collocations, prepositional phrases, and subject+verb units together.\n" +
+    "- Do NOT split into random balanced word groups. Do NOT create awkward chunks like 'ethic because I\\'ve' or 'seen her get'.\n" +
+    "- Avoid one-word chunks unless the sentence is very short or the word is a standalone connector.\n" +
     "- Avoid awkward literal translation style.\n" +
     "- Do NOT include questionId or tags.";
 

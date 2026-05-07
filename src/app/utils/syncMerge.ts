@@ -32,6 +32,7 @@ export function mergeByIdNewerTimestamp<T extends { id: string; timestamp: strin
 type SyncableVocabCard = {
   id: string;
   timestamp: string;
+  items?: Array<{ id?: string; sentence?: string; reviewChunks?: string[] }>;
   lastViewedAt?: string | null;
   nextDueAt?: string | null;
   reviewStage?: number | null;
@@ -61,6 +62,23 @@ function pickVocabReviewWinner<T extends SyncableVocabCard>(left: T, right: T): 
   return String(left.timestamp || '') >= String(right.timestamp || '') ? left : right;
 }
 
+function mergeVocabItemsWithReviewChunks<T extends SyncableVocabCard>(content: T, left: T, right: T): T {
+  if (!Array.isArray(content.items)) return content;
+  const candidates = [...(left.items || []), ...(right.items || [])];
+  const items = content.items.map((item) => {
+    if (Array.isArray(item.reviewChunks) && item.reviewChunks.length > 0) return item;
+    const source = candidates.find((candidate) => {
+      if (!Array.isArray(candidate.reviewChunks) || candidate.reviewChunks.length === 0) return false;
+      return (
+        (item.id && candidate.id === item.id) ||
+        (item.sentence && candidate.sentence === item.sentence)
+      );
+    });
+    return source ? { ...item, reviewChunks: source.reviewChunks } : item;
+  });
+  return { ...content, items };
+}
+
 /**
  * 词卡合并与普通条目不同：
  * 内容字段优先取较新的 timestamp，
@@ -88,20 +106,21 @@ export function mergeVocabCards<T extends SyncableVocabCard>(local: T[], remote:
         : remoteCard;
     const reviewWinner = pickVocabReviewWinner(localCard, remoteCard);
 
+    const contentWithChunks = mergeVocabItemsWithReviewChunks(contentWinner, localCard, remoteCard);
     const merged = {
-      ...contentWinner,
+      ...contentWithChunks,
       lastViewedAt:
-        reviewWinner.lastViewedAt === undefined ? contentWinner.lastViewedAt ?? null : reviewWinner.lastViewedAt,
+        reviewWinner.lastViewedAt === undefined ? contentWithChunks.lastViewedAt ?? null : reviewWinner.lastViewedAt,
       nextDueAt:
-        reviewWinner.nextDueAt === undefined ? contentWinner.nextDueAt ?? null : reviewWinner.nextDueAt,
+        reviewWinner.nextDueAt === undefined ? contentWithChunks.nextDueAt ?? null : reviewWinner.nextDueAt,
       reviewStage:
         typeof reviewWinner.reviewStage === 'number'
           ? reviewWinner.reviewStage
-          : (contentWinner.reviewStage ?? 0),
+          : (contentWithChunks.reviewStage ?? 0),
       // 用最近的“内容更新时间 / 最近复习时间”作为合并后的时间戳，
       // 让后续自动同步能把修复后的复习状态继续带出去。
       timestamp: maxIsoTimestamp(
-        contentWinner.timestamp,
+        contentWithChunks.timestamp,
         reviewWinner.timestamp,
         reviewWinner.lastViewedAt,
       ),

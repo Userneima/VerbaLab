@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getAiJson, postAiJson } from './client';
+import { quotaSummarySchema, type AiQuotaSummary } from './quota';
 
 const adminOverviewSchema = z.object({
   summary: z.object({
@@ -59,11 +60,25 @@ const adminAlertsSchema = z.object({
   alerts: z.array(adminAlertSchema).default([]),
 });
 
+const adminQuotaUserRowSchema = z.object({
+  userId: z.string(),
+  email: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  lastSignInAt: z.string().nullable().optional(),
+  summary: quotaSummarySchema,
+});
+
+const adminQuotaUsersSchema = z.object({
+  rows: z.array(adminQuotaUserRowSchema).default([]),
+});
+
 export type AdminOverview = z.infer<typeof adminOverviewSchema>;
 export type AdminInviteUsageRow = z.infer<typeof adminInviteUsageRowSchema>;
 export type AdminAlert = z.infer<typeof adminAlertSchema>;
 export type AdminInviteUsageResult = z.infer<typeof adminInviteUsageSchema>;
 export type AdminAlertsResult = z.infer<typeof adminAlertsSchema>;
+export type AdminQuotaUserRow = z.infer<typeof adminQuotaUserRowSchema>;
+export type AdminQuotaUsersResult = z.infer<typeof adminQuotaUsersSchema>;
 
 export async function getAdminOverview(): Promise<AdminOverview> {
   return adminOverviewSchema.parse(await getAiJson('/admin/overview'));
@@ -77,12 +92,34 @@ export async function getAdminAlerts(): Promise<AdminAlertsResult> {
   return adminAlertsSchema.parse(await getAiJson('/admin/alerts'));
 }
 
+export async function getAdminQuotaUsers(query = ''): Promise<AdminQuotaUsersResult> {
+  const params = new URLSearchParams();
+  if (query.trim()) params.set('q', query.trim());
+  params.set('limit', '25');
+  const suffix = params.toString();
+  return adminQuotaUsersSchema.parse(await getAiJson(`/admin/quota-users${suffix ? `?${suffix}` : ''}`));
+}
+
 export async function resolveAdminAlert(alertId: string): Promise<void> {
   await postAiJson(`/admin/alerts/${encodeURIComponent(alertId)}/resolve`, {});
 }
 
 export async function unblockAdminUser(userId: string): Promise<void> {
   await postAiJson(`/admin/users/${encodeURIComponent(userId)}/unblock`, {});
+}
+
+export async function grantAdminUserQuota(
+  userId: string,
+  payload: {
+    grantType: 'pack' | 'gift' | 'monthly' | 'yearly';
+    amount?: number;
+    monthlyLimit?: number;
+    expiresAt?: string | null;
+    note?: string;
+  }
+): Promise<AiQuotaSummary> {
+  const result = await postAiJson<unknown>(`/admin/users/${encodeURIComponent(userId)}/quota-grant`, payload);
+  return z.object({ summary: quotaSummarySchema }).parse(result).summary;
 }
 
 export function trackProductEvent(payload: {

@@ -148,6 +148,7 @@ export function VocabCardDetailPage() {
         sentence: res.item.sentence,
         collocationsUsed: res.item.collocationsUsed,
         chinese: res.item.chinese,
+        reviewChunks: res.item.reviewChunks,
       };
       const tagExtra = buildWordLabTags({
         headword: c.headword,

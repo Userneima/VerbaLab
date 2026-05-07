@@ -15,13 +15,14 @@ type DisplayMode = 'newest' | 'due' | 'alphabet' | 'initial' | 'pos';
 
 const DISPLAY_MODE_OPTIONS: Array<{ value: DisplayMode; label: string; description: string }> = [
   { value: 'newest', label: '最新收录', description: '按加入时间倒序' },
-  { value: 'due', label: '待复习优先', description: '先看现在该复习的卡' },
+  { value: 'due', label: '待复习优先', description: '默认只展开本轮 10 张' },
   { value: 'alphabet', label: 'A-Z', description: '按单词字母顺序' },
   { value: 'initial', label: '首字母', description: '按首字母分组浏览' },
   { value: 'pos', label: '词性', description: '按词性分组浏览' },
 ];
 
 const POS_TAG_ORDER = ['#phrase', '#n.', '#v.', '#adj.', '#adv.', '#prep.'] as const;
+const REVIEW_BATCH_SIZE = 10;
 
 const POS_LABELS: Record<(typeof POS_TAG_ORDER)[number], string> = {
   '#phrase': '短语',
@@ -126,6 +127,7 @@ export function VocabReviewPage() {
   const store = useStore();
   const [q, setQ] = useState('');
   const [displayMode, setDisplayMode] = useState<DisplayMode>('due');
+  const [reviewLimit, setReviewLimit] = useState(REVIEW_BATCH_SIZE);
 
   const cards = useMemo(() => {
     let list = [...store.vocabCards];
@@ -142,7 +144,15 @@ export function VocabReviewPage() {
     return list;
   }, [store.vocabCards, q]);
 
-  const sections = useMemo(() => buildSections(cards, displayMode), [cards, displayMode]);
+  const dueCardCount = useMemo(
+    () => store.vocabCards.filter((card) => isVocabCardDue(card.nextDueAt)).length,
+    [store.vocabCards],
+  );
+  const visibleCards = useMemo(() => {
+    if (displayMode !== 'due' || q.trim()) return cards;
+    return sortCards(cards.filter((card) => isVocabCardDue(card.nextDueAt)), 'due').slice(0, reviewLimit);
+  }, [cards, displayMode, q, reviewLimit]);
+  const sections = useMemo(() => buildSections(visibleCards, displayMode), [visibleCards, displayMode]);
   const currentMode = DISPLAY_MODE_OPTIONS.find((option) => option.value === displayMode);
 
   const renderCard = (card: VocabCard) => {
@@ -242,7 +252,9 @@ export function VocabReviewPage() {
               {currentMode?.label}
             </div>
             <div className="text-[11px] text-gray-400">
-              {currentMode?.description}
+              {displayMode === 'due' && !q.trim()
+                ? `本轮 ${visibleCards.length}/${dueCardCount} 张待复习`
+                : currentMode?.description}
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -250,7 +262,10 @@ export function VocabReviewPage() {
               <button
                 key={option.value}
                 type="button"
-                onClick={() => setDisplayMode(option.value)}
+                onClick={() => {
+                  setDisplayMode(option.value);
+                  if (option.value === 'due') setReviewLimit(REVIEW_BATCH_SIZE);
+                }}
                 className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                   displayMode === option.value
                     ? 'border-violet-200 bg-violet-50 text-violet-700'
@@ -264,18 +279,24 @@ export function VocabReviewPage() {
         </div>
 
         <div className="p-4 sm:p-6 pb-safe sm:pb-6">
-          {cards.length === 0 ? (
+          {visibleCards.length === 0 ? (
             <div className="text-center py-16 px-4 max-w-md mx-auto">
               <div className="w-16 h-16 bg-violet-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <BookMarked size={28} className="text-violet-600" />
               </div>
               <h3 className="text-gray-700 font-semibold mb-2">
-                {store.vocabCards.length === 0 ? '还没有单词卡片' : '没有匹配的词卡'}
+                {store.vocabCards.length === 0
+                  ? '还没有单词卡片'
+                  : q.trim()
+                    ? '没有匹配的词卡'
+                    : '今天没有待复习词卡'}
               </h3>
               <p className="text-gray-400 text-sm mb-6">
                 {store.vocabCards.length === 0
                   ? '在词卡工坊生成并保存后，将在此以瀑布流展示。'
-                  : '换个关键词试试。'}
+                  : q.trim()
+                    ? '换个关键词试试。'
+                    : '想浏览全部词卡，可以切换到最新收录或 A-Z。'}
               </p>
               {store.vocabCards.length === 0 && (
                 <Link
@@ -308,6 +329,17 @@ export function VocabReviewPage() {
                   </div>
                 </section>
               ))}
+              {displayMode === 'due' && !q.trim() && dueCardCount > reviewLimit && (
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setReviewLimit((current) => current + REVIEW_BATCH_SIZE)}
+                    className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100"
+                  >
+                    再加 10 张
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
