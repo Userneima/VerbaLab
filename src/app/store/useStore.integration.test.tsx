@@ -146,6 +146,7 @@ describe('useAppStore integration', () => {
 
     expect(result.current.corpus[0].userSentence).toBe('I am making progress every day.');
     expect(result.current.corpus[0].zhTranslation).toBeUndefined();
+    expect(result.current.corpus[0].createdAt).toBeTruthy();
     expect(result.current.corpus[0].reviewStage).toBe(0);
     expect(result.current.corpus[0].lastReviewedAt).toBeNull();
     expect(result.current.corpus[0].nextReviewAt).toBeTruthy();

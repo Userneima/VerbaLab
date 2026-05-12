@@ -14,7 +14,7 @@ import type { CorpusEntry } from '../types';
 
 type AddCorpusEntryInput = Omit<
   CorpusEntry,
-  'id' | 'timestamp' | 'lastReviewedAt' | 'nextReviewAt' | 'reviewStage'
+  'id' | 'createdAt' | 'timestamp' | 'lastReviewedAt' | 'nextReviewAt' | 'reviewStage'
 >;
 
 export function useCorpusDomain(
@@ -70,6 +70,7 @@ export function useCorpusDomain(
         resultEntry = {
           ...entry,
           id: newCorpusEntryId(),
+          createdAt: now,
           timestamp: now,
           lastReviewedAt: null,
           nextReviewAt: initialCorpusNextReviewAt(),

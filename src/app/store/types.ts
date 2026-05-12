@@ -7,6 +7,7 @@ import { initialCorpusNextReviewAt } from '../utils/corpusReview';
 
 export interface CorpusEntry {
   id: string;
+  createdAt: string;
   timestamp: string;
   verbId: string;
   verb: string;
@@ -120,8 +121,10 @@ export interface LearningProgress {
 export function normalizeCorpusEntry(raw: unknown): CorpusEntry {
   const r = raw as Record<string, unknown>;
   const timestamp = String(r?.timestamp || new Date().toISOString());
+  const createdAt = String(r?.createdAt || timestamp);
   return {
     id: String(r?.id || crypto.randomUUID()),
+    createdAt,
     timestamp,
     verbId: String(r?.verbId || ''),
     verb: String(r?.verb || ''),

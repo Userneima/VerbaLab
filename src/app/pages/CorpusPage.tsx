@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSearchParams, Navigate } from 'react-router';
-import { Library, Search, Filter, Download, Loader2, Trash2, RotateCcw, X, Pencil } from 'lucide-react';
+import { Library, Search, Download, Loader2, Trash2, RotateCcw, X, Pencil, ArrowUpDown } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { aiTranslateSentence } from '../utils/api';
 import { corpusDuplicateGroupSizes, getCorpusDuplicateSummary } from '../utils/corpusDedupe';
@@ -20,8 +20,15 @@ function readShowZhPreference(): boolean {
   }
 }
 
-type SortBy = 'newest' | 'oldest' | 'verb' | 'due';
+type SortBy = 'added' | 'edited' | 'due' | 'verb';
 type FilterVerb = 'all' | string;
+
+const DISPLAY_MODE_OPTIONS: Array<{ value: SortBy; label: string; description: string }> = [
+  { value: 'added', label: '添加时间', description: '按收录时间倒序' },
+  { value: 'edited', label: '修改时间', description: '按最近修改倒序' },
+  { value: 'due', label: '待复习优先', description: '优先处理到期句子' },
+  { value: 'verb', label: '对应动词', description: '按动词浏览语料' },
+];
 
 export function CorpusPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,7 +36,7 @@ export function CorpusPage() {
 
   const store = useStore();
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<SortBy>('newest');
+  const [sortBy, setSortBy] = useState<SortBy>('edited');
   const [filterVerb, setFilterVerb] = useState<FilterVerb>('all');
   const [flashSentenceId, setFlashSentenceId] = useState<string | null>(null);
   const [showZhTranslation, setShowZhTranslation] = useState(readShowZhPreference);
@@ -80,6 +87,7 @@ export function CorpusPage() {
 
   const reviewActionsUnlocked =
     Boolean(reviewingSentenceId) && reviewingSentenceId === reviewPassedSentenceId;
+  const currentMode = DISPLAY_MODE_OPTIONS.find((option) => option.value === sortBy);
 
   const filtered = useMemo(() => {
     let result = [...store.corpus];
@@ -97,8 +105,8 @@ export function CorpusPage() {
       result = result.filter(e => e.verb === filterVerb);
     }
 
-    if (sortBy === 'newest') result.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-    if (sortBy === 'oldest') result.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    if (sortBy === 'added') result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    if (sortBy === 'edited') result.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
     if (sortBy === 'verb') result.sort((a, b) => a.verb.localeCompare(b.verb));
     if (sortBy === 'due') {
       result.sort((a, b) => {
@@ -294,27 +302,6 @@ export function CorpusPage() {
                 </div>
               )}
 
-              {dueCorpusEntries.length > 0 && (
-                <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-800">
-                      <RotateCcw size={15} />
-                      语料复习
-                    </div>
-                    <p className="mt-1 text-sm text-emerald-900">
-                      当前有 <strong>{dueCorpusEntries.length}</strong> 句到期。按中文提示重排英文句，复习你真正说过的话。
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => openReviewModal(dueCorpusEntries[0].id)}
-                    className="shrink-0 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
-                  >
-                    开始复习
-                  </button>
-                </div>
-              )}
-
               <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:flex-wrap">
                 <div className="relative flex-1 min-w-48">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -325,38 +312,6 @@ export function CorpusPage() {
                     className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-indigo-400"
                   />
                 </div>
-                <select
-                  value={filterVerb}
-                  onChange={e => setFilterVerb(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-400 bg-white"
-                >
-                  <option value="all">所有动词</option>
-                  {uniqueVerbs.map(v => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={sortBy}
-                  onChange={e => setSortBy(e.target.value as SortBy)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-400 bg-white"
-                >
-                  <option value="newest">最新</option>
-                  <option value="oldest">最早</option>
-                  <option value="verb">按动词</option>
-                  <option value="due">待复习优先</option>
-                </select>
-                <div className="flex items-center gap-1 text-sm text-gray-500 bg-gray-100 px-3 py-2 rounded-lg">
-                  <Filter size={14} />
-                  {filtered.length} 条
-                </div>
-                {dueCorpusEntries.length > 0 && (
-                  <div className="flex items-center gap-1 text-sm text-emerald-700 bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100">
-                    <RotateCcw size={14} />
-                    待复习 {dueCorpusEntries.length} 句
-                  </div>
-                )}
                 <div className="inline-flex items-center gap-2.5 text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-2 bg-white shrink-0">
                   <span className="whitespace-nowrap select-none">中文翻译</span>
                   <button
@@ -378,6 +333,78 @@ export function CorpusPage() {
                   <span className="text-xs text-gray-400 hidden sm:inline select-none">已缓存时默认展示</span>
                 </div>
               </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                  <ArrowUpDown size={12} />
+                  {currentMode?.label}
+                </div>
+                <div className="text-[11px] text-gray-400">
+                  {sortBy === 'due'
+                    ? `本轮 ${dueCorpusEntries.length} 句待复习`
+                    : currentMode?.description}
+                </div>
+                {dueCorpusEntries.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => openReviewModal(dueCorpusEntries[0].id)}
+                    className="text-[11px] font-medium text-emerald-700 hover:text-emerald-800"
+                  >
+                    开始复习
+                  </button>
+                ) : null}
+                <div className="text-[11px] text-gray-400">{filtered.length} 条</div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {DISPLAY_MODE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setSortBy(option.value);
+                      if (option.value !== 'verb') setFilterVerb('all');
+                    }}
+                    className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      sortBy === option.value
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-gray-200 bg-white text-gray-500 hover:border-emerald-100 hover:text-emerald-700'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              {sortBy === 'verb' && uniqueVerbs.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFilterVerb('all')}
+                    className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      filterVerb === 'all'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-gray-200 bg-white text-gray-500 hover:border-emerald-100 hover:text-emerald-700'
+                    }`}
+                  >
+                    全部动词
+                  </button>
+                  {uniqueVerbs.map((verb) => (
+                    <button
+                      key={verb}
+                      type="button"
+                      onClick={() => setFilterVerb(verb)}
+                      className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                        filterVerb === verb
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : 'border-gray-200 bg-white text-gray-500 hover:border-emerald-100 hover:text-emerald-700'
+                      }`}
+                    >
+                      {verb}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {translateErr && (
                 <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{translateErr}</div>
@@ -489,7 +516,7 @@ export function CorpusPage() {
                         </div>
                         <div className="flex flex-col items-end gap-2 shrink-0 pt-0.5">
                           <div className="text-[11px] text-gray-400 tabular-nums">
-                            {new Date(entry.timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                            {new Date(sortBy === 'added' ? entry.createdAt : entry.timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
                           </div>
                           <button
                             type="button"

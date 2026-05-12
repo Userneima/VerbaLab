@@ -32,6 +32,7 @@ function mergeByIdNewerTimestamp<T extends { id: string; timestamp?: string }>(
 
 type SyncableCorpusEntry = {
   id: string;
+  createdAt?: string;
   timestamp?: string;
   lastReviewedAt?: string | null;
   nextReviewAt?: string | null;
@@ -78,9 +79,14 @@ function mergeCorpusEntries<T extends SyncableCorpusEntry>(
         ? localEntry
         : remoteEntry;
     const reviewWinner = pickCorpusReviewWinner(localEntry, remoteEntry);
+    const createdAtCandidates = [localEntry.createdAt, remoteEntry.createdAt, contentWinner.timestamp]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .sort();
 
     byId.set(localEntry.id, {
       ...contentWinner,
+      createdAt: createdAtCandidates[0] || contentWinner.timestamp,
       lastReviewedAt:
         reviewWinner.lastReviewedAt === undefined
           ? contentWinner.lastReviewedAt ?? null
