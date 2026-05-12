@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { syncLoad, syncSave } from '../utils/api';
 import {
+  mergeCorpusEntries,
   mergeByIdNewerTimestamp,
   mergeVocabCards,
   mergeFoundryExampleOverrides,
@@ -32,6 +33,7 @@ type UseCloudSyncArgs = {
   setFoundryExampleOverrides: Dispatch<
     SetStateAction<Record<string, FoundryExampleOverridePack>>
   >;
+  normalizeCorpusEntry: (raw: unknown) => CorpusEntry;
   normalizeVocabCard: (raw: unknown) => VocabCard;
   normalizeFoundryExampleOverrides: (
     raw: unknown
@@ -72,6 +74,7 @@ export function useCloudSync({
   setVocabCards,
   foundryExampleOverrides,
   setFoundryExampleOverrides,
+  normalizeCorpusEntry,
   normalizeVocabCard,
   normalizeFoundryExampleOverrides,
 }: UseCloudSyncArgs) {
@@ -117,10 +120,11 @@ export function useCloudSync({
 
   const buildMergedPayload = useCallback(
     (data: Awaited<ReturnType<typeof syncLoad>>) => {
+      const remoteCorpus = (data.corpus || []).map((entry) => normalizeCorpusEntry(entry));
       const remoteVocab = (data.vocabCards || []).map(c => normalizeVocabCard(c));
       const remoteFoundry = normalizeFoundryExampleOverrides(data.foundryExampleOverrides);
       return {
-        corpus: mergeByIdNewerTimestamp(corpus, data.corpus || []),
+        corpus: mergeCorpusEntries(corpus, remoteCorpus),
         errorBank: mergeByIdNewerTimestamp(errorBank, data.errorBank || []),
         stuckPoints: mergeByIdNewerTimestamp(stuckPoints, data.stuckPoints || []),
         learnedCollocations: Array.from(
@@ -135,6 +139,7 @@ export function useCloudSync({
       errorBank,
       foundryExampleOverrides,
       learnedCollocations,
+      normalizeCorpusEntry,
       normalizeFoundryExampleOverrides,
       normalizeVocabCard,
       stuckPoints,
@@ -144,8 +149,9 @@ export function useCloudSync({
 
   const mergeRemoteData = useCallback(
     (data: Awaited<ReturnType<typeof syncLoad>>) => {
+      const remoteCorpus = (data.corpus || []).map((entry) => normalizeCorpusEntry(entry));
       const remoteVocab = (data.vocabCards || []).map(c => normalizeVocabCard(c));
-      setCorpus(prev => mergeByIdNewerTimestamp(prev, data.corpus || []));
+      setCorpus(prev => mergeCorpusEntries(prev, remoteCorpus));
       setErrorBank(prev => mergeByIdNewerTimestamp(prev, data.errorBank || []));
       setStuckPoints(prev => mergeByIdNewerTimestamp(prev, data.stuckPoints || []));
       setLearnedCollocations(prev =>
@@ -162,6 +168,7 @@ export function useCloudSync({
       );
     },
     [
+      normalizeCorpusEntry,
       normalizeFoundryExampleOverrides,
       normalizeVocabCard,
       setCorpus,

@@ -3,14 +3,26 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { newCorpusEntryId } from '../../utils/ids';
 import { corpusSentenceDedupeKey } from '../../utils/corpusDedupe';
 import { trackProductEvent } from '../../utils/api';
+import {
+  computeCorpusAfterRemembered,
+  computeCorpusAfterStruggled,
+  computeCorpusAfterViewed,
+  initialCorpusNextReviewAt,
+  isCorpusEntryDue,
+} from '../../utils/corpusReview';
 import type { CorpusEntry } from '../types';
+
+type AddCorpusEntryInput = Omit<
+  CorpusEntry,
+  'id' | 'timestamp' | 'lastReviewedAt' | 'nextReviewAt' | 'reviewStage'
+>;
 
 export function useCorpusDomain(
   setCorpus: Dispatch<SetStateAction<CorpusEntry[]>>,
   corpusDedupeIndexRef: MutableRefObject<Map<string, string>>,
 ) {
   const addToCorpus = useCallback(
-    (entry: Omit<CorpusEntry, 'id' | 'timestamp'>) => {
+    (entry: AddCorpusEntryInput) => {
       const now = new Date().toISOString();
       const incomingKey = corpusSentenceDedupeKey(entry.collocationId, entry.userSentence);
 
@@ -45,6 +57,11 @@ export function useCorpusDomain(
             nativeThinking: entry.nativeThinking ?? existing.nativeThinking,
             isChinglish: entry.isChinglish ?? existing.isChinglish,
             zhTranslation: sentenceChanged ? undefined : existing.zhTranslation,
+            lastReviewedAt: sentenceChanged ? null : existing.lastReviewedAt,
+            nextReviewAt: sentenceChanged
+              ? initialCorpusNextReviewAt()
+              : existing.nextReviewAt,
+            reviewStage: sentenceChanged ? 0 : existing.reviewStage,
           };
           const rest = prev.filter((_, i) => i !== dupIdx);
           return [resultEntry, ...rest];
@@ -54,6 +71,9 @@ export function useCorpusDomain(
           ...entry,
           id: newCorpusEntryId(),
           timestamp: now,
+          lastReviewedAt: null,
+          nextReviewAt: initialCorpusNextReviewAt(),
+          reviewStage: 0,
         };
         return [resultEntry, ...prev];
       });
@@ -113,10 +133,96 @@ export function useCorpusDomain(
                 zhTranslation:
                   trimmed === entry.userSentence.trim() ? entry.zhTranslation : undefined,
                 timestamp: now,
+                lastReviewedAt:
+                  trimmed === entry.userSentence.trim() ? entry.lastReviewedAt : null,
+                nextReviewAt:
+                  trimmed === entry.userSentence.trim()
+                    ? entry.nextReviewAt
+                    : initialCorpusNextReviewAt(),
+                reviewStage:
+                  trimmed === entry.userSentence.trim() ? entry.reviewStage : 0,
               }
             : entry,
         ),
       );
+    },
+    [setCorpus],
+  );
+
+  const markCorpusEntryViewed = useCallback(
+    (entryId: string) => {
+      const now = new Date().toISOString();
+      setCorpus((prev) =>
+        prev.map((entry) => {
+          if (entry.id !== entryId) return entry;
+          if (!isCorpusEntryDue(entry.nextReviewAt)) return entry;
+          const { nextReviewAt } = computeCorpusAfterViewed(entry.reviewStage);
+          return {
+            ...entry,
+            lastReviewedAt: now,
+            nextReviewAt,
+          };
+        }),
+      );
+      trackProductEvent({
+        eventName: 'corpus_entry_reviewed',
+        surface: 'corpus',
+        objectType: 'corpus',
+        objectId: entryId,
+        metadata: { result: 'viewed' },
+      });
+    },
+    [setCorpus],
+  );
+
+  const markCorpusEntryRemembered = useCallback(
+    (entryId: string) => {
+      const now = new Date().toISOString();
+      setCorpus((prev) =>
+        prev.map((entry) => {
+          if (entry.id !== entryId) return entry;
+          const { reviewStage, nextReviewAt } = computeCorpusAfterRemembered(entry.reviewStage);
+          return {
+            ...entry,
+            lastReviewedAt: now,
+            reviewStage,
+            nextReviewAt,
+          };
+        }),
+      );
+      trackProductEvent({
+        eventName: 'corpus_entry_reviewed',
+        surface: 'corpus',
+        objectType: 'corpus',
+        objectId: entryId,
+        metadata: { result: 'remembered' },
+      });
+    },
+    [setCorpus],
+  );
+
+  const markCorpusEntryStruggled = useCallback(
+    (entryId: string) => {
+      const now = new Date().toISOString();
+      setCorpus((prev) =>
+        prev.map((entry) => {
+          if (entry.id !== entryId) return entry;
+          const { reviewStage, nextReviewAt } = computeCorpusAfterStruggled();
+          return {
+            ...entry,
+            lastReviewedAt: now,
+            reviewStage,
+            nextReviewAt,
+          };
+        }),
+      );
+      trackProductEvent({
+        eventName: 'corpus_entry_reviewed',
+        surface: 'corpus',
+        objectType: 'corpus',
+        objectId: entryId,
+        metadata: { result: 'struggled' },
+      });
     },
     [setCorpus],
   );
@@ -126,5 +232,8 @@ export function useCorpusDomain(
     removeCorpusEntry,
     setCorpusEntryZhTranslation,
     updateCorpusEntrySentence,
+    markCorpusEntryViewed,
+    markCorpusEntryRemembered,
+    markCorpusEntryStruggled,
   };
 }

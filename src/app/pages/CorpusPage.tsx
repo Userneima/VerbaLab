@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSearchParams, Navigate } from 'react-router';
-import { Library, Search, Filter, Download, Loader2, Trash2 } from 'lucide-react';
+import { Library, Search, Filter, Download, Loader2, Trash2, RotateCcw, X } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { aiTranslateSentence } from '../utils/api';
 import { corpusDuplicateGroupSizes, getCorpusDuplicateSummary } from '../utils/corpusDedupe';
+import { isCorpusEntryDue } from '../utils/corpusReview';
+import { VocabReproducePanel } from '../components/VocabReproducePanel';
 import { VirtualizedStack } from '../components/VirtualizedStack';
 
 const SHOW_ZH_STORAGE_KEY = 'ff_corpus_show_zh';
@@ -18,7 +20,7 @@ function readShowZhPreference(): boolean {
   }
 }
 
-type SortBy = 'newest' | 'oldest' | 'verb';
+type SortBy = 'newest' | 'oldest' | 'verb' | 'due';
 type FilterVerb = 'all' | string;
 
 export function CorpusPage() {
@@ -35,6 +37,8 @@ export function CorpusPage() {
   const [translateErr, setTranslateErr] = useState<string | null>(null);
   const [editingSentenceId, setEditingSentenceId] = useState<string | null>(null);
   const [editingSentenceDraft, setEditingSentenceDraft] = useState('');
+  const [reviewingSentenceId, setReviewingSentenceId] = useState<string | null>(null);
+  const [reviewPassedSentenceId, setReviewPassedSentenceId] = useState<string | null>(null);
 
   const sentenceHighlight = searchParams.get('sentence');
 
@@ -61,6 +65,22 @@ export function CorpusPage() {
     [store.corpus]
   );
 
+  const dueCorpusEntries = useMemo(
+    () =>
+      [...store.corpus]
+        .filter((entry) => isCorpusEntryDue(entry.nextReviewAt))
+        .sort((a, b) => String(a.nextReviewAt || '').localeCompare(String(b.nextReviewAt || ''))),
+    [store.corpus],
+  );
+
+  const reviewingEntry = useMemo(
+    () => store.corpus.find((entry) => entry.id === reviewingSentenceId) ?? null,
+    [reviewingSentenceId, store.corpus],
+  );
+
+  const reviewActionsUnlocked =
+    Boolean(reviewingSentenceId) && reviewingSentenceId === reviewPassedSentenceId;
+
   const filtered = useMemo(() => {
     let result = [...store.corpus];
 
@@ -80,6 +100,17 @@ export function CorpusPage() {
     if (sortBy === 'newest') result.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
     if (sortBy === 'oldest') result.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     if (sortBy === 'verb') result.sort((a, b) => a.verb.localeCompare(b.verb));
+    if (sortBy === 'due') {
+      result.sort((a, b) => {
+        const aDue = isCorpusEntryDue(a.nextReviewAt);
+        const bDue = isCorpusEntryDue(b.nextReviewAt);
+        if (aDue !== bDue) return aDue ? -1 : 1;
+        if (aDue && bDue) {
+          return String(a.nextReviewAt || '').localeCompare(String(b.nextReviewAt || ''));
+        }
+        return b.timestamp.localeCompare(a.timestamp);
+      });
+    }
 
     return result;
   }, [store.corpus, search, sortBy, filterVerb]);
@@ -170,6 +201,42 @@ export function CorpusPage() {
     if (flashSentenceId === entryId) setFlashSentenceId(null);
   };
 
+  const closeReviewModal = useCallback(() => {
+    setReviewingSentenceId(null);
+    setReviewPassedSentenceId(null);
+  }, []);
+
+  const openReviewModal = useCallback(
+    (entryId: string) => {
+      const entry = store.corpus.find((item) => item.id === entryId);
+      if (!entry) return;
+      setReviewingSentenceId(entryId);
+      setReviewPassedSentenceId(null);
+      if (!entry.zhTranslation?.trim()) {
+        void requestTranslationIfMissing(entry.id, entry.userSentence);
+      }
+    },
+    [requestTranslationIfMissing, store.corpus],
+  );
+
+  const handleCorpusViewed = useCallback(() => {
+    if (!reviewingEntry || !reviewActionsUnlocked) return;
+    store.markCorpusEntryViewed(reviewingEntry.id);
+    closeReviewModal();
+  }, [closeReviewModal, reviewActionsUnlocked, reviewingEntry, store]);
+
+  const handleCorpusRemembered = useCallback(() => {
+    if (!reviewingEntry || !reviewActionsUnlocked) return;
+    store.markCorpusEntryRemembered(reviewingEntry.id);
+    closeReviewModal();
+  }, [closeReviewModal, reviewActionsUnlocked, reviewingEntry, store]);
+
+  const handleCorpusStruggled = useCallback(() => {
+    if (!reviewingEntry || !reviewActionsUnlocked) return;
+    store.markCorpusEntryStruggled(reviewingEntry.id);
+    closeReviewModal();
+  }, [closeReviewModal, reviewActionsUnlocked, reviewingEntry, store]);
+
   if (redirectToVocabReview) {
     return <Navigate to="/vocab-review" replace />;
   }
@@ -227,6 +294,27 @@ export function CorpusPage() {
                 </div>
               )}
 
+              {dueCorpusEntries.length > 0 && (
+                <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-800">
+                      <RotateCcw size={15} />
+                      语料复习
+                    </div>
+                    <p className="mt-1 text-sm text-emerald-900">
+                      当前有 <strong>{dueCorpusEntries.length}</strong> 句到期。按中文提示重排英文句，复习你真正说过的话。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openReviewModal(dueCorpusEntries[0].id)}
+                    className="shrink-0 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
+                  >
+                    开始复习
+                  </button>
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:flex-wrap">
                 <div className="relative flex-1 min-w-48">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -257,11 +345,18 @@ export function CorpusPage() {
                   <option value="newest">最新</option>
                   <option value="oldest">最早</option>
                   <option value="verb">按动词</option>
+                  <option value="due">待复习优先</option>
                 </select>
                 <div className="flex items-center gap-1 text-sm text-gray-500 bg-gray-100 px-3 py-2 rounded-lg">
                   <Filter size={14} />
                   {filtered.length} 条
                 </div>
+                {dueCorpusEntries.length > 0 && (
+                  <div className="flex items-center gap-1 text-sm text-emerald-700 bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100">
+                    <RotateCcw size={14} />
+                    待复习 {dueCorpusEntries.length} 句
+                  </div>
+                )}
                 <div className="inline-flex items-center gap-2.5 text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-2 bg-white shrink-0">
                   <span className="whitespace-nowrap select-none">中文翻译</span>
                   <button
@@ -298,6 +393,7 @@ export function CorpusPage() {
                   const showZhBlock = showZhTranslation && hasZh;
                   const needsFetch = !hasZh;
                   const isEditing = editingSentenceId === entry.id;
+                  const isDue = isCorpusEntryDue(entry.nextReviewAt);
 
                   return (
                     <div
@@ -384,12 +480,30 @@ export function CorpusPage() {
                             <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-400 bg-white">
                               {entry.mode === 'test' ? '实验室' : entry.mode === 'field' ? '实战仓' : '表达求助'}
                             </span>
+                            {isDue && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-700 bg-emerald-50">
+                                待复习
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex flex-col items-end gap-2 shrink-0 pt-0.5">
                           <div className="text-[11px] text-gray-400 tabular-nums">
                             {new Date(entry.timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => openReviewModal(entry.id)}
+                            className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md border ${
+                              isDue
+                                ? 'text-emerald-700 border-emerald-100/80 hover:bg-emerald-50/80'
+                                : 'text-gray-400 border-gray-100 bg-gray-50 cursor-not-allowed'
+                            }`}
+                            disabled={!isDue}
+                          >
+                            <RotateCcw size={12} />
+                            复习
+                          </button>
                           <button
                             type="button"
                             onClick={() => startEditingSentence(entry.id, entry.userSentence)}
@@ -420,6 +534,102 @@ export function CorpusPage() {
           )}
         </div>
       </div>
+
+      {reviewingEntry && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+          <div className="w-full max-w-2xl rounded-3xl border border-white/70 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4">
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                  <RotateCcw size={12} />
+                  语料复习
+                </div>
+                <h3 className="mt-2 text-lg font-semibold text-gray-900">根据中文提示复原句子</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  你之前真正写过的一句，现在把它重新拼出来。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeReviewModal}
+                className="shrink-0 rounded-full border border-gray-200 p-2 text-gray-500 hover:bg-gray-50"
+                aria-label="关闭语料复习"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 bg-gray-50/80">
+                  {reviewingEntry.verb}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 bg-gray-50/80">
+                  {reviewingEntry.collocation}
+                </span>
+                {reviewingEntry.lastReviewedAt && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-400 bg-white">
+                    上次复习 {new Date(reviewingEntry.lastReviewedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                  </span>
+                )}
+              </div>
+
+              {translatingId === reviewingEntry.id && !reviewingEntry.zhTranslation?.trim() && (
+                <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-sm text-emerald-700">
+                  <Loader2 size={15} className="animate-spin" />
+                  正在补充中文翻译，拿到提示后再开始复习。
+                </div>
+              )}
+
+              {reviewingEntry.zhTranslation?.trim() || reviewingEntry.nativeThinking?.trim() ? (
+                <VocabReproducePanel
+                  referenceSentence={reviewingEntry.userSentence}
+                  targetCollocation={reviewingEntry.collocation}
+                  cueZh={
+                    reviewingEntry.zhTranslation?.trim() ||
+                    reviewingEntry.nativeThinking?.trim()
+                  }
+                  alreadyPassed={reviewPassedSentenceId === reviewingEntry.id}
+                  onComplete={() => setReviewPassedSentenceId(reviewingEntry.id)}
+                />
+              ) : (
+                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                  {translateErr
+                    ? `中文翻译暂时获取失败：${translateErr}`
+                    : '这条语料还在准备中文提示，暂时不能开始复习。'}
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={handleCorpusViewed}
+                  disabled={!reviewActionsUnlocked}
+                  className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-45 disabled:cursor-not-allowed"
+                >
+                  已浏览
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCorpusRemembered}
+                  disabled={!reviewActionsUnlocked}
+                  className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-45 disabled:cursor-not-allowed"
+                >
+                  记住了
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCorpusStruggled}
+                  disabled={!reviewActionsUnlocked}
+                  className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-45 disabled:cursor-not-allowed"
+                >
+                  还不太熟
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

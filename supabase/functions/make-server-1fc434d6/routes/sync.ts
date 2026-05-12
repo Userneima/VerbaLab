@@ -30,6 +30,78 @@ function mergeByIdNewerTimestamp<T extends { id: string; timestamp?: string }>(
   );
 }
 
+type SyncableCorpusEntry = {
+  id: string;
+  timestamp?: string;
+  lastReviewedAt?: string | null;
+  nextReviewAt?: string | null;
+  reviewStage?: number | null;
+};
+
+function pickCorpusReviewWinner<T extends SyncableCorpusEntry>(left: T, right: T): T {
+  const leftViewed = String(left.lastReviewedAt || "");
+  const rightViewed = String(right.lastReviewedAt || "");
+  if (leftViewed !== rightViewed) return leftViewed > rightViewed ? left : right;
+
+  const leftStage = typeof left.reviewStage === "number" ? left.reviewStage : -1;
+  const rightStage = typeof right.reviewStage === "number" ? right.reviewStage : -1;
+  if (leftStage !== rightStage) return leftStage > rightStage ? left : right;
+
+  const leftDue = String(left.nextReviewAt || "");
+  const rightDue = String(right.nextReviewAt || "");
+  if (leftDue !== rightDue) return leftDue > rightDue ? left : right;
+
+  return String(left.timestamp || "") >= String(right.timestamp || "") ? left : right;
+}
+
+function mergeCorpusEntries<T extends SyncableCorpusEntry>(
+  local: T[] | undefined,
+  remote: T[] | undefined,
+): T[] {
+  const byId = new Map<string, T>();
+
+  for (const remoteEntry of remote || []) {
+    if (!remoteEntry?.id) continue;
+    byId.set(remoteEntry.id, remoteEntry);
+  }
+
+  for (const localEntry of local || []) {
+    if (!localEntry?.id) continue;
+    const remoteEntry = byId.get(localEntry.id);
+    if (!remoteEntry) {
+      byId.set(localEntry.id, localEntry);
+      continue;
+    }
+
+    const contentWinner =
+      String(localEntry.timestamp || "") >= String(remoteEntry.timestamp || "")
+        ? localEntry
+        : remoteEntry;
+    const reviewWinner = pickCorpusReviewWinner(localEntry, remoteEntry);
+
+    byId.set(localEntry.id, {
+      ...contentWinner,
+      lastReviewedAt:
+        reviewWinner.lastReviewedAt === undefined
+          ? contentWinner.lastReviewedAt ?? null
+          : reviewWinner.lastReviewedAt,
+      nextReviewAt:
+        reviewWinner.nextReviewAt === undefined
+          ? contentWinner.nextReviewAt ?? null
+          : reviewWinner.nextReviewAt,
+      reviewStage:
+        typeof reviewWinner.reviewStage === "number"
+          ? reviewWinner.reviewStage
+          : (contentWinner.reviewStage ?? 0),
+      timestamp: contentWinner.timestamp,
+    } as T);
+  }
+
+  return [...byId.values()].sort((a, b) =>
+    String(b.timestamp || "").localeCompare(String(a.timestamp || ""))
+  );
+}
+
 type SyncableVocabCard = {
   id: string;
   timestamp?: string;
@@ -264,7 +336,7 @@ export function registerSyncRoutes(app: Hono) {
         `${prefix}_foundry_examples`,
       ]);
 
-      const mergedCorpus = mergeByIdNewerTimestamp(
+      const mergedCorpus = mergeCorpusEntries(
         Array.isArray(corpus) ? corpus : [],
         Array.isArray(remoteCorpus) ? remoteCorpus : [],
       );

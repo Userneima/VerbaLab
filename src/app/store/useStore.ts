@@ -14,6 +14,7 @@ import {
   saveToStorage,
 } from './persistence';
 import {
+  normalizeCorpusEntry,
   normalizeFoundryExampleOverrides,
   normalizeVocabCard,
   type CorpusEntry,
@@ -38,6 +39,7 @@ export type {
   VocabCardRegisterGuide,
 } from './types';
 export {
+  normalizeCorpusEntry,
   normalizeFoundryExampleOverrides,
   normalizeRegisterGuide,
   normalizeVocabCard,
@@ -192,6 +194,7 @@ export function useAppStore(accessToken: string | null) {
     setVocabCards,
     foundryExampleOverrides,
     setFoundryExampleOverrides,
+    normalizeCorpusEntry,
     normalizeVocabCard,
     normalizeFoundryExampleOverrides,
   });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mergeCorpusEntries,
   mergeByIdNewerTimestamp,
   mergeVocabCards,
   mergeLearnedCollocationIds,
@@ -28,6 +29,43 @@ describe('mergeLearnedCollocationIds', () => {
     const s = new Set(['a']);
     const out = mergeLearnedCollocationIds(s, ['b', 'a']);
     expect([...out].sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('mergeCorpusEntries', () => {
+  it('keeps fresher review state even when content timestamp is older', () => {
+    type TestEntry = {
+      id: string;
+      timestamp: string;
+      userSentence: string;
+      reviewStage: number;
+      lastReviewedAt: string | null;
+      nextReviewAt: string;
+    };
+    const local: TestEntry[] = [{
+      id: 'c-1',
+      timestamp: '2024-04-10T00:00:00.000Z',
+      userSentence: 'I made progress.',
+      reviewStage: 2,
+      lastReviewedAt: '2024-04-15T00:00:00.000Z',
+      nextReviewAt: '2024-04-22T00:00:00.000Z',
+    }];
+    const remote: TestEntry[] = [{
+      id: 'c-1',
+      timestamp: '2024-04-12T00:00:00.000Z',
+      userSentence: 'I made progress yesterday.',
+      reviewStage: 0,
+      lastReviewedAt: null,
+      nextReviewAt: '2024-04-12T06:00:00.000Z',
+    }];
+
+    const out = mergeCorpusEntries(local, remote);
+    expect(out).toHaveLength(1);
+    expect(out[0].userSentence).toBe('I made progress yesterday.');
+    expect(out[0].reviewStage).toBe(2);
+    expect(out[0].lastReviewedAt).toBe('2024-04-15T00:00:00.000Z');
+    expect(out[0].nextReviewAt).toBe('2024-04-22T00:00:00.000Z');
+    expect(out[0].timestamp).toBe('2024-04-12T00:00:00.000Z');
   });
 });
 

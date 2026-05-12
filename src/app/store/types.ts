@@ -3,6 +3,7 @@ import {
   ERROR_REVIEW_RESET_HOURS,
   MS_PER_HOUR,
 } from '../utils/reviewConfig';
+import { initialCorpusNextReviewAt } from '../utils/corpusReview';
 
 export interface CorpusEntry {
   id: string;
@@ -19,6 +20,9 @@ export interface CorpusEntry {
   nativeThinking?: string;
   isChinglish?: boolean;
   zhTranslation?: string;
+  lastReviewedAt: string | null;
+  nextReviewAt: string | null;
+  reviewStage: number;
 }
 
 export type ErrorCategory = 'grammar' | 'collocation' | 'chinglish';
@@ -111,6 +115,33 @@ export interface VocabCard {
 
 export interface LearningProgress {
   learnedCollocations: Set<string>;
+}
+
+export function normalizeCorpusEntry(raw: unknown): CorpusEntry {
+  const r = raw as Record<string, unknown>;
+  const timestamp = String(r?.timestamp || new Date().toISOString());
+  return {
+    id: String(r?.id || crypto.randomUUID()),
+    timestamp,
+    verbId: String(r?.verbId || ''),
+    verb: String(r?.verb || ''),
+    collocationId: String(r?.collocationId || ''),
+    collocation: String(r?.collocation || ''),
+    userSentence: String(r?.userSentence || ''),
+    isCorrect: Boolean(r?.isCorrect),
+    mode: r?.mode === 'field' || r?.mode === 'stuck' ? r.mode : 'test',
+    tags: Array.isArray(r?.tags) ? (r.tags as unknown[]).map((t) => String(t)) : [],
+    nativeVersion: r?.nativeVersion ? String(r.nativeVersion) : undefined,
+    nativeThinking: r?.nativeThinking ? String(r.nativeThinking) : undefined,
+    isChinglish: typeof r?.isChinglish === 'boolean' ? r.isChinglish : undefined,
+    zhTranslation: r?.zhTranslation ? String(r.zhTranslation) : undefined,
+    lastReviewedAt: r?.lastReviewedAt != null ? String(r.lastReviewedAt) : null,
+    nextReviewAt:
+      r?.nextReviewAt != null
+        ? String(r.nextReviewAt)
+        : initialCorpusNextReviewAt(timestamp),
+    reviewStage: typeof r?.reviewStage === 'number' ? r.reviewStage : 0,
+  };
 }
 
 export function normalizeVocabCardItem(raw: unknown, idx: number, cardId: string): VocabCardItem {

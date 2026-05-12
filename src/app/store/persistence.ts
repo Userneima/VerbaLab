@@ -8,6 +8,7 @@ import type {
   VocabCard,
 } from './types';
 import {
+  normalizeCorpusEntry,
   normalizeFoundryExampleOverrides,
   normalizeLegacyErrorEntry,
   normalizeVocabCard,
@@ -26,6 +27,9 @@ export function loadFromStorage<T>(key: string, defaultValue: T): T {
       }
       if (key === 'ff_errors' && Array.isArray(parsed)) {
         return parsed.map((e: any) => normalizeLegacyErrorEntry(e)) as unknown as T;
+      }
+      if (key === 'ff_corpus' && Array.isArray(parsed)) {
+        return parsed.map((e: any) => normalizeCorpusEntry(e)) as unknown as T;
       }
       if (key === 'ff_vocab_cards' && Array.isArray(parsed)) {
         return parsed.map((c: any) => normalizeVocabCard(c)) as unknown as T;

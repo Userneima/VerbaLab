@@ -146,6 +146,38 @@ describe('useAppStore integration', () => {
 
     expect(result.current.corpus[0].userSentence).toBe('I am making progress every day.');
     expect(result.current.corpus[0].zhTranslation).toBeUndefined();
+    expect(result.current.corpus[0].reviewStage).toBe(0);
+    expect(result.current.corpus[0].lastReviewedAt).toBeNull();
+    expect(result.current.corpus[0].nextReviewAt).toBeTruthy();
+  });
+
+  it('keeps corpus added timestamp stable during review progression', () => {
+    const { result } = renderHook(() => useAppStore(null));
+
+    act(() => {
+      result.current.clearAll();
+      result.current.addToCorpus({
+        verbId: 'v1',
+        verb: 'get',
+        collocationId: 'c1',
+        collocation: 'get better at',
+        userSentence: 'I get better at interviews with practice.',
+        isCorrect: true,
+        mode: 'test',
+        tags: ['get'],
+      });
+    });
+
+    const entryId = result.current.corpus[0]?.id;
+    const addedAt = result.current.corpus[0]?.timestamp;
+
+    act(() => {
+      result.current.markCorpusEntryRemembered(entryId!);
+    });
+
+    expect(result.current.corpus[0].timestamp).toBe(addedAt);
+    expect(result.current.corpus[0].lastReviewedAt).toBeTruthy();
+    expect(result.current.corpus[0].reviewStage).toBe(1);
   });
 
   it('reopens resolved stuck points', () => {
