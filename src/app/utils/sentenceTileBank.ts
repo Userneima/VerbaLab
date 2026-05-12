@@ -2,6 +2,7 @@ import { getDailyCollocations } from '../data/verbData';
 import { normalizeForMatch } from './reviewGate';
 
 export type SentenceTile = { id: string; text: string };
+export type SentenceTileDifficulty = 'phrase' | 'word';
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -21,21 +22,41 @@ export function tokenizeSentenceToTiles(sentence: string): SentenceTile[] {
     .map((text, i) => ({ id: `r${i}`, text }));
 }
 
-function buildBalancedChunkSizes(wordCount: number, chunkCount: number): number[] {
-  if (wordCount <= 0 || chunkCount <= 0) return [];
-  const base = Math.floor(wordCount / chunkCount);
-  const extra = wordCount % chunkCount;
-  return Array.from({ length: chunkCount }, (_, i) => (i < extra ? base + 1 : base));
+const HARD_PUNCTUATION_RE = /[;:!?]$/;
+const SOFT_PUNCTUATION_RE = /[,]$/;
+const CLAUSE_STARTERS = new Set([
+  'and',
+  'but',
+  'because',
+  'so',
+  'that',
+  'which',
+  'who',
+  'when',
+  'while',
+  'if',
+  'although',
+  'though',
+  'since',
+  'unless',
+  'where',
+  'after',
+  'before',
+  'then',
+]);
+
+function shouldBreakBeforeWord(word: string): boolean {
+  return CLAUSE_STARTERS.has(wordKey(word));
 }
 
-function suggestChunkCount(wordCount: number): number {
-  if (wordCount <= 8) return wordCount;
-  return Math.min(7, Math.max(4, Math.round(wordCount / 3)));
+function shouldBreakAfterWord(word: string): boolean {
+  return HARD_PUNCTUATION_RE.test(word) || SOFT_PUNCTUATION_RE.test(word);
 }
 
 /**
- * 面向较长句子的“短语块”切分，避免逐词切得太碎。
- * 长句会被均匀分成 4~7 个小块；短句仍保持逐词切分。
+ * 面向较长句子的“短语块”切分：
+ * 默认先给用户 2~5 词的自然短语块，尽量顺着标点和连接词断开，
+ * 避免出现 “keys; they” 这类半截拼接。
  */
 export function tokenizeSentenceToChunkedTiles(sentence: string): SentenceTile[] {
   const words = sentence.trim().split(/\s+/).filter(Boolean);
@@ -43,14 +64,32 @@ export function tokenizeSentenceToChunkedTiles(sentence: string): SentenceTile[]
     return words.map((text, i) => ({ id: `r${i}`, text }));
   }
 
-  const chunkSizes = buildBalancedChunkSizes(words.length, suggestChunkCount(words.length));
   const tiles: SentenceTile[] = [];
-  let cursor = 0;
+  let current: string[] = [];
+  const minChunkWords = 2;
+  const softTarget = 5;
+  const maxChunkWords = 6;
 
-  chunkSizes.forEach((size, index) => {
-    const chunk = words.slice(cursor, cursor + size).join(' ').trim();
-    if (chunk) tiles.push({ id: `r${index}`, text: chunk });
-    cursor += size;
+  words.forEach((word, index) => {
+    const nextWord = words[index + 1];
+    current.push(word);
+
+    const currentLength = current.length;
+    const remaining = words.length - index - 1;
+    const nextWordHasBoundary = nextWord ? shouldBreakAfterWord(nextWord) : false;
+    const breakAfterPunctuation = shouldBreakAfterWord(word) && currentLength >= minChunkWords;
+    const breakBeforeClause = nextWord && shouldBreakBeforeWord(nextWord) && currentLength >= minChunkWords;
+    const hitSoftTarget =
+      currentLength >= softTarget &&
+      (remaining === 0 || remaining >= minChunkWords) &&
+      !nextWordHasBoundary;
+    const hitMax = currentLength >= maxChunkWords;
+
+    if (breakAfterPunctuation || breakBeforeClause || hitSoftTarget || hitMax || remaining === 0) {
+      const chunk = current.join(' ').trim();
+      if (chunk) tiles.push({ id: `r${tiles.length}`, text: chunk });
+      current = [];
+    }
   });
 
   return tiles;

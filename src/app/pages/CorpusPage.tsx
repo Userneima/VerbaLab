@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSearchParams, Navigate } from 'react-router';
-import { Library, Search, Filter, Download, Loader2, Trash2, RotateCcw, X } from 'lucide-react';
+import { Library, Search, Filter, Download, Loader2, Trash2, RotateCcw, X, Pencil } from 'lucide-react';
 import { useStore } from '../store/StoreContext';
 import { aiTranslateSentence } from '../utils/api';
 import { corpusDuplicateGroupSizes, getCorpusDuplicateSummary } from '../utils/corpusDedupe';
@@ -478,7 +478,7 @@ export function CorpusPage() {
                               {entry.collocation}
                             </span>
                             <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-400 bg-white">
-                              {entry.mode === 'test' ? '实验室' : entry.mode === 'field' ? '实战仓' : '表达求助'}
+                              来源：{entry.mode === 'test' ? '实验室' : entry.mode === 'field' ? '实战仓' : '表达求助'}
                             </span>
                             {isDue && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-700 bg-emerald-50">
@@ -509,6 +509,7 @@ export function CorpusPage() {
                             onClick={() => startEditingSentence(entry.id, entry.userSentence)}
                             className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600/90 px-2 py-1 rounded-md border border-indigo-100/80 hover:bg-indigo-50/80"
                           >
+                            <Pencil size={12} />
                             编辑
                           </button>
                           <button

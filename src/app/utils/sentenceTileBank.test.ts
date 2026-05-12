@@ -23,6 +23,19 @@ describe('sentenceTileBank chunked helpers', () => {
     expect(verifyReconstructedSentence(chunkTiles, sentence)).toBe(true);
   });
 
+  it('avoids awkward mid-clause splits for punctuation + connector patterns', () => {
+    const sentence =
+      "I can't find my keys; they might be in the drawer, so let's keep things simple and check there first.";
+    const chunkTiles = tokenizeSentenceToChunkedTiles(sentence);
+
+    expect(chunkTiles.map((tile) => tile.text)).toEqual([
+      "I can't find my keys;",
+      'they might be in the drawer,',
+      "so let's keep things simple",
+      'and check there first.',
+    ]);
+  });
+
   it('shuffles chunk tiles without changing the sentence content set', () => {
     const sentence =
       'Problem-solving skills are important because students will face new situations that cannot be solved by memorizing facts alone.';

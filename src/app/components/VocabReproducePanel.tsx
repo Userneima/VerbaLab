@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { CheckCircle2, Sparkles } from 'lucide-react';
 import {
+  buildShuffledChunkTilePool,
   type SentenceTile,
+  type SentenceTileDifficulty,
   tokenizeSentenceToTiles,
-  buildShuffledTilePool,
+  tokenizeSentenceToChunkedTiles,
   verifyReconstructedSentence,
 } from '../utils/sentenceTileBank';
 
@@ -26,25 +28,37 @@ export function VocabReproducePanel({
   alreadyPassed,
 }: Props) {
   const sessionKey = `${referenceSentence}\0${targetCollocation}`;
+  const [difficulty, setDifficulty] = useState<SentenceTileDifficulty>('phrase');
+  const [retryingAfterPass, setRetryingAfterPass] = useState(false);
 
-  const refTiles = useMemo(() => tokenizeSentenceToTiles(referenceSentence), [referenceSentence]);
-  const distractorCount = useMemo(() => {
-    const n = refTiles.length;
-    return Math.min(6, Math.max(3, Math.floor(n / 2) + 2));
-  }, [refTiles.length]);
+  const wordTiles = useMemo(() => tokenizeSentenceToTiles(referenceSentence), [referenceSentence]);
+  const phraseTiles = useMemo(
+    () => tokenizeSentenceToChunkedTiles(referenceSentence),
+    [referenceSentence],
+  );
+  const refTiles = difficulty === 'word' ? wordTiles : phraseTiles;
+  const hasHarderMode = phraseTiles.length < wordTiles.length;
 
   const [pool, setPool] = useState<SentenceTile[]>([]);
   const [selected, setSelected] = useState<SentenceTile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
-  useEffect(() => {
-    if (alreadyPassed) return;
-    setPool(buildShuffledTilePool(referenceSentence, distractorCount));
+  const resetCurrentRound = useCallback(() => {
+    setPool(
+      difficulty === 'word'
+        ? [...wordTiles].sort(() => Math.random() - 0.5)
+        : buildShuffledChunkTilePool(referenceSentence),
+    );
     setSelected([]);
     setError(null);
     setDone(false);
-  }, [sessionKey, referenceSentence, distractorCount, alreadyPassed]);
+  }, [difficulty, referenceSentence, wordTiles]);
+
+  useEffect(() => {
+    if (alreadyPassed && !retryingAfterPass) return;
+    resetCurrentRound();
+  }, [alreadyPassed, resetCurrentRound, retryingAfterPass, sessionKey]);
 
   const moveToAnswer = (tile: SentenceTile) => {
     setError(null);
@@ -69,16 +83,33 @@ export function VocabReproducePanel({
       return;
     }
     setDone(true);
-    onComplete();
+    setRetryingAfterPass(false);
+    if (!alreadyPassed) onComplete();
   };
 
   const canCheck = refTiles.length > 0 && selected.length === refTiles.length && !done;
+  const canRaiseDifficulty = hasHarderMode && difficulty === 'phrase';
 
-  if (alreadyPassed || done) {
+  if ((alreadyPassed || done) && !retryingAfterPass) {
     return (
-      <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-        <CheckCircle2 size={16} className="shrink-0" />
-        句子复原正确，可标记复习结果。
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+          <CheckCircle2 size={16} className="shrink-0" />
+          句子复原正确，可标记复习结果。
+        </div>
+        {canRaiseDifficulty ? (
+          <button
+            type="button"
+            onClick={() => {
+              setDifficulty('word');
+              setRetryingAfterPass(true);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-700 hover:bg-violet-100"
+          >
+            <Sparkles size={14} />
+            想更扎实的话，可提升到逐词模式再练一次
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -90,8 +121,33 @@ export function VocabReproducePanel({
   return (
     <div className="space-y-3 border border-violet-200 rounded-xl p-3 bg-violet-50/40">
       <p className="text-[11px] text-violet-900 font-medium leading-relaxed">
-        到期复习：根据中文提示排列词块复原英文句，通过后即可点下方「已浏览 / 记住了 / 还不太熟」。
+        到期复习：先按中文提示复原英文句。默认先用更自然的短语块；觉得太简单再提升到逐词模式。
       </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+            difficulty === 'phrase'
+              ? 'bg-violet-100 text-violet-700'
+              : 'bg-gray-100 text-gray-500'
+          }`}
+        >
+          当前难度：短语块
+        </span>
+        {hasHarderMode ? (
+          <button
+            type="button"
+            onClick={() => {
+              const nextDifficulty = difficulty === 'phrase' ? 'word' : 'phrase';
+              setDifficulty(nextDifficulty);
+              setRetryingAfterPass(nextDifficulty === 'word');
+            }}
+            className="rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-violet-700 hover:bg-violet-50"
+          >
+            {difficulty === 'phrase' ? '提升到逐词模式' : '切回短语块'}
+          </button>
+        ) : null}
+      </div>
 
       <div>
         <div className="text-[11px] font-semibold text-gray-700 mb-1.5">翻译这句话</div>
@@ -115,7 +171,7 @@ export function VocabReproducePanel({
         >
           {selected.length === 0 ? (
             <span className="text-[11px] text-gray-400 py-1">
-              点击下方词块依次加入（共需 {refTiles.length} 个）
+              点击下方词块依次加入（共需 {refTiles.length} 个{difficulty === 'phrase' ? '短语块' : '词块'}）
             </span>
           ) : (
             selected.map(tile => (
