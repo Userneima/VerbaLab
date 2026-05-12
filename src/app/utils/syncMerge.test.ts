@@ -62,7 +62,7 @@ describe('mergeVocabCards', () => {
     expect(out[0].reviewStage).toBe(1);
     expect(out[0].nextDueAt).toBe('2024-04-22T00:00:00.000Z');
     expect(out[0].lastViewedAt).toBe('2024-04-15T00:00:00.000Z');
-    expect(out[0].timestamp).toBe('2024-04-15T00:00:00.000Z');
+    expect(out[0].timestamp).toBe('2024-04-12T00:00:00.000Z');
   });
 
   it('still keeps newer content fields by timestamp', () => {

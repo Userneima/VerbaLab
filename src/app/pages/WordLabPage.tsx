@@ -35,6 +35,10 @@ function hasDetailedRegisterGuide(input: {
   );
 }
 
+function isLikelyReviewTimestampPollution(card: { timestamp: string; lastViewedAt?: string | null }): boolean {
+  return Boolean(card.lastViewedAt && card.timestamp === card.lastViewedAt);
+}
+
 export function WordLabPage() {
   const navigate = useNavigate();
   const store = useStore();
@@ -60,7 +64,7 @@ export function WordLabPage() {
   const previewRef = useRef<HTMLDivElement>(null);
 
   const recentVocabCards = useMemo(
-    () => store.vocabCards.slice(0, 8),
+    () => store.vocabCards.filter((card) => !isLikelyReviewTimestampPollution(card)).slice(0, 8),
     [store.vocabCards]
   );
 

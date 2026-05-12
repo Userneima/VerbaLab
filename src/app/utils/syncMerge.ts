@@ -38,14 +38,6 @@ type SyncableVocabCard = {
   reviewStage?: number | null;
 };
 
-function maxIsoTimestamp(...values: Array<string | null | undefined>): string {
-  return values
-    .map(v => String(v || ''))
-    .filter(Boolean)
-    .sort()
-    .at(-1) || '';
-}
-
 function pickVocabReviewWinner<T extends SyncableVocabCard>(left: T, right: T): T {
   const leftViewed = String(left.lastViewedAt || '');
   const rightViewed = String(right.lastViewedAt || '');
@@ -117,13 +109,9 @@ export function mergeVocabCards<T extends SyncableVocabCard>(local: T[], remote:
         typeof reviewWinner.reviewStage === 'number'
           ? reviewWinner.reviewStage
           : (contentWithChunks.reviewStage ?? 0),
-      // 用最近的“内容更新时间 / 最近复习时间”作为合并后的时间戳，
-      // 让后续自动同步能把修复后的复习状态继续带出去。
-      timestamp: maxIsoTimestamp(
-        contentWithChunks.timestamp,
-        reviewWinner.timestamp,
-        reviewWinner.lastViewedAt,
-      ),
+      // timestamp 表示词卡添加/内容时间，不能被复习时间污染；
+      // 复习进度只通过 lastViewedAt / nextDueAt / reviewStage 合并。
+      timestamp: contentWithChunks.timestamp,
     } satisfies T;
 
     byId.set(localCard.id, merged);

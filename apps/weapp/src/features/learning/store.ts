@@ -90,7 +90,8 @@ function mergeVocabCards(local: VocabCard[], remote: VocabCard[]): VocabCard[] {
       lastViewedAt: review.lastViewedAt ?? content.lastViewedAt ?? null,
       nextDueAt: review.nextDueAt ?? content.nextDueAt ?? null,
       reviewStage: typeof review.reviewStage === 'number' ? review.reviewStage : content.reviewStage || 0,
-      timestamp: [content.timestamp, review.timestamp, review.lastViewedAt || ''].sort().at(-1) || content.timestamp,
+      // timestamp 表示词卡添加/内容时间，不能被复习时间污染。
+      timestamp: content.timestamp,
     });
   }
   return [...byId.values()].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
@@ -294,9 +295,9 @@ export function updateVocabReview(cardId: string, result: 'remembered' | 'strugg
     if (card.id !== cardId) return card;
     if (result === 'remembered') {
       const reviewStage = Math.min((card.reviewStage || 0) + 1, VOCAB_REVIEW_INTERVAL_DAYS.length - 1);
-      return { ...card, timestamp: now, lastViewedAt: now, reviewStage, nextDueAt: addDays(vocabReviewDaysForStage(reviewStage)) };
+      return { ...card, lastViewedAt: now, reviewStage, nextDueAt: addDays(vocabReviewDaysForStage(reviewStage)) };
     }
-    return { ...card, timestamp: now, lastViewedAt: now, reviewStage: 0, nextDueAt: addDays(1) };
+    return { ...card, lastViewedAt: now, reviewStage: 0, nextDueAt: addDays(1) };
   });
   const next = { ...current, vocabCards };
   setLearningState(next);

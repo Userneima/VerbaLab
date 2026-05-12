@@ -39,10 +39,6 @@ type SyncableVocabCard = {
   reviewStage?: number | null;
 };
 
-function maxIsoTimestamp(...values: Array<string | null | undefined>): string {
-  return values.map((v) => String(v || "")).filter(Boolean).sort().at(-1) || "";
-}
-
 function pickVocabReviewWinner<T extends SyncableVocabCard>(left: T, right: T): T {
   const leftViewed = String(left.lastViewedAt || "");
   const rightViewed = String(right.lastViewedAt || "");
@@ -112,11 +108,9 @@ function mergeVocabCards<T extends SyncableVocabCard>(
         typeof reviewWinner.reviewStage === "number"
           ? reviewWinner.reviewStage
           : (contentWithChunks.reviewStage ?? 0),
-      timestamp: maxIsoTimestamp(
-        contentWithChunks.timestamp,
-        reviewWinner.timestamp,
-        reviewWinner.lastViewedAt,
-      ),
+      // timestamp 表示词卡添加/内容时间，不能被复习时间污染；
+      // 复习进度只通过 lastViewedAt / nextDueAt / reviewStage 合并。
+      timestamp: contentWithChunks.timestamp,
     } as T);
   }
 

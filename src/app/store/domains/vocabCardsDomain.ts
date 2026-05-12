@@ -102,7 +102,6 @@ export function useVocabCardsDomain(
           if (card.id !== cardId) return card;
           return {
             ...card,
-            timestamp: now,
             lastViewedAt: now,
             nextDueAt: computeNextDueAfterView(card.reviewStage),
           };
@@ -126,7 +125,7 @@ export function useVocabCardsDomain(
         prev.map((card) => {
           if (card.id !== cardId) return card;
           const { reviewStage, nextDueAt } = computeAfterRemembered(card.reviewStage);
-          return { ...card, timestamp: now, lastViewedAt: now, reviewStage, nextDueAt };
+          return { ...card, lastViewedAt: now, reviewStage, nextDueAt };
         }),
       );
       trackProductEvent({
@@ -147,7 +146,7 @@ export function useVocabCardsDomain(
         prev.map((card) => {
           if (card.id !== cardId) return card;
           const { reviewStage, nextDueAt } = computeAfterStruggled();
-          return { ...card, timestamp: now, lastViewedAt: now, reviewStage, nextDueAt };
+          return { ...card, lastViewedAt: now, reviewStage, nextDueAt };
         }),
       );
       trackProductEvent({

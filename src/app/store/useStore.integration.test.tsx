@@ -166,4 +166,38 @@ describe('useAppStore integration', () => {
 
     expect(result.current.stuckPoints[0].resolved).toBe(false);
   });
+
+  it('keeps vocab card added timestamp stable during review', () => {
+    const { result } = renderHook(() => useAppStore(null));
+
+    act(() => {
+      result.current.clearAll();
+      result.current.addVocabCard({
+        headword: 'denim',
+        tags: ['#n.'],
+        items: [
+          {
+            id: 'item-1',
+            questionId: '',
+            part: 1,
+            topic: '',
+            questionSnapshot: '',
+            sentence: 'I bought a denim jacket.',
+            collocationsUsed: ['denim jacket'],
+            chinese: '我买了一件牛仔夹克。',
+          },
+        ],
+      });
+    });
+
+    const cardId = result.current.vocabCards[0]?.id;
+    const addedAt = result.current.vocabCards[0]?.timestamp;
+
+    act(() => {
+      result.current.markVocabCardRemembered(cardId!);
+    });
+
+    expect(result.current.vocabCards[0].timestamp).toBe(addedAt);
+    expect(result.current.vocabCards[0].lastViewedAt).toBeTruthy();
+  });
 });
