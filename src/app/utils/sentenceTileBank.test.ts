@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildShuffledChunkTilePool,
+  sentenceSupportsWordDifficultyUpgrade,
   tokenizeSentenceToChunkedTiles,
   tokenizeSentenceToTiles,
   verifyReconstructedSentence,
@@ -44,5 +45,14 @@ describe('sentenceTileBank chunked helpers', () => {
 
     expect(shuffled).toHaveLength(chunkTiles.length);
     expect(shuffled.map(tile => tile.text).sort()).toEqual(chunkTiles.map(tile => tile.text).sort());
+  });
+
+  it('reports whether a sentence can be upgraded to word difficulty', () => {
+    expect(sentenceSupportsWordDifficultyUpgrade('I enjoy traveling a lot.')).toBe(false);
+    expect(
+      sentenceSupportsWordDifficultyUpgrade(
+        'I would like to go there because I want to experience a different pace of life and see something new.',
+      ),
+    ).toBe(true);
   });
 });

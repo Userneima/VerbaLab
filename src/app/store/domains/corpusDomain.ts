@@ -10,11 +10,19 @@ import {
   initialCorpusNextReviewAt,
   isCorpusEntryDue,
 } from '../../utils/corpusReview';
+import type { SentenceTileDifficulty } from '../../utils/sentenceTileBank';
 import type { CorpusEntry } from '../types';
 
 type AddCorpusEntryInput = Omit<
   CorpusEntry,
-  'id' | 'createdAt' | 'timestamp' | 'lastReviewedAt' | 'nextReviewAt' | 'reviewStage'
+  | 'id'
+  | 'createdAt'
+  | 'timestamp'
+  | 'lastReviewedAt'
+  | 'nextReviewAt'
+  | 'reviewStage'
+  | 'sentenceReviewDifficulty'
+  | 'reviewRememberedStreak'
 >;
 
 export function useCorpusDomain(
@@ -62,6 +70,8 @@ export function useCorpusDomain(
               ? initialCorpusNextReviewAt()
               : existing.nextReviewAt,
             reviewStage: sentenceChanged ? 0 : existing.reviewStage,
+            sentenceReviewDifficulty: sentenceChanged ? 'phrase' : existing.sentenceReviewDifficulty,
+            reviewRememberedStreak: sentenceChanged ? 0 : existing.reviewRememberedStreak,
           };
           const rest = prev.filter((_, i) => i !== dupIdx);
           return [resultEntry, ...rest];
@@ -75,6 +85,8 @@ export function useCorpusDomain(
           lastReviewedAt: null,
           nextReviewAt: initialCorpusNextReviewAt(),
           reviewStage: 0,
+          sentenceReviewDifficulty: 'phrase',
+          reviewRememberedStreak: 0,
         };
         return [resultEntry, ...prev];
       });
@@ -142,6 +154,10 @@ export function useCorpusDomain(
                     : initialCorpusNextReviewAt(),
                 reviewStage:
                   trimmed === entry.userSentence.trim() ? entry.reviewStage : 0,
+                sentenceReviewDifficulty:
+                  trimmed === entry.userSentence.trim() ? entry.sentenceReviewDifficulty : 'phrase',
+                reviewRememberedStreak:
+                  trimmed === entry.userSentence.trim() ? entry.reviewRememberedStreak : 0,
               }
             : entry,
         ),
@@ -156,12 +172,18 @@ export function useCorpusDomain(
       setCorpus((prev) =>
         prev.map((entry) => {
           if (entry.id !== entryId) return entry;
-          if (!isCorpusEntryDue(entry.nextReviewAt)) return entry;
+          if (!isCorpusEntryDue(entry.nextReviewAt)) {
+            return {
+              ...entry,
+              reviewRememberedStreak: 0,
+            };
+          }
           const { nextReviewAt } = computeCorpusAfterViewed(entry.reviewStage);
           return {
             ...entry,
             lastReviewedAt: now,
             nextReviewAt,
+            reviewRememberedStreak: 0,
           };
         }),
       );
@@ -188,6 +210,7 @@ export function useCorpusDomain(
             lastReviewedAt: now,
             reviewStage,
             nextReviewAt,
+            reviewRememberedStreak: entry.reviewRememberedStreak + 1,
           };
         }),
       );
@@ -214,6 +237,7 @@ export function useCorpusDomain(
             lastReviewedAt: now,
             reviewStage,
             nextReviewAt,
+            reviewRememberedStreak: 0,
           };
         }),
       );
@@ -228,6 +252,23 @@ export function useCorpusDomain(
     [setCorpus],
   );
 
+  const setCorpusEntryReviewDifficulty = useCallback(
+    (entryId: string, difficulty: SentenceTileDifficulty) => {
+      setCorpus((prev) =>
+        prev.map((entry) =>
+          entry.id === entryId
+            ? {
+                ...entry,
+                sentenceReviewDifficulty: difficulty,
+                reviewRememberedStreak: 0,
+              }
+            : entry,
+        ),
+      );
+    },
+    [setCorpus],
+  );
+
   return {
     addToCorpus,
     removeCorpusEntry,
@@ -236,5 +277,6 @@ export function useCorpusDomain(
     markCorpusEntryViewed,
     markCorpusEntryRemembered,
     markCorpusEntryStruggled,
+    setCorpusEntryReviewDifficulty,
   };
 }

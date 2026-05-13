@@ -1,4 +1,5 @@
 import type { FoundryExampleOverridePack } from '../utils/syncMerge';
+import type { SentenceTileDifficulty } from '../utils/sentenceTileBank';
 import {
   ERROR_REVIEW_RESET_HOURS,
   MS_PER_HOUR,
@@ -24,6 +25,8 @@ export interface CorpusEntry {
   lastReviewedAt: string | null;
   nextReviewAt: string | null;
   reviewStage: number;
+  sentenceReviewDifficulty: SentenceTileDifficulty;
+  reviewRememberedStreak: number;
 }
 
 export type ErrorCategory = 'grammar' | 'collocation' | 'chinglish';
@@ -144,6 +147,9 @@ export function normalizeCorpusEntry(raw: unknown): CorpusEntry {
         ? String(r.nextReviewAt)
         : initialCorpusNextReviewAt(timestamp),
     reviewStage: typeof r?.reviewStage === 'number' ? r.reviewStage : 0,
+    sentenceReviewDifficulty: r?.sentenceReviewDifficulty === 'word' ? 'word' : 'phrase',
+    reviewRememberedStreak:
+      typeof r?.reviewRememberedStreak === 'number' ? r.reviewRememberedStreak : 0,
   };
 }
 

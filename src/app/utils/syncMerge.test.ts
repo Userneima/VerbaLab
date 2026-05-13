@@ -71,6 +71,47 @@ describe('mergeCorpusEntries', () => {
     expect(out[0].createdAt).toBe('2024-04-01T00:00:00.000Z');
     expect(out[0].timestamp).toBe('2024-04-12T00:00:00.000Z');
   });
+
+  it('keeps fresher corpus difficulty metadata with the fresher review side', () => {
+    type TestEntry = {
+      id: string;
+      createdAt?: string;
+      timestamp: string;
+      userSentence: string;
+      reviewStage: number;
+      lastReviewedAt: string | null;
+      nextReviewAt: string;
+      sentenceReviewDifficulty: 'phrase' | 'word';
+      reviewRememberedStreak: number;
+    };
+    const local: TestEntry[] = [{
+      id: 'c-1',
+      createdAt: '2024-04-01T00:00:00.000Z',
+      timestamp: '2024-04-10T00:00:00.000Z',
+      userSentence: 'I made progress.',
+      reviewStage: 5,
+      lastReviewedAt: '2024-04-15T00:00:00.000Z',
+      nextReviewAt: '2024-04-22T00:00:00.000Z',
+      sentenceReviewDifficulty: 'word',
+      reviewRememberedStreak: 0,
+    }];
+    const remote: TestEntry[] = [{
+      id: 'c-1',
+      createdAt: '2024-04-02T00:00:00.000Z',
+      timestamp: '2024-04-12T00:00:00.000Z',
+      userSentence: 'I made progress yesterday.',
+      reviewStage: 0,
+      lastReviewedAt: null,
+      nextReviewAt: '2024-04-12T06:00:00.000Z',
+      sentenceReviewDifficulty: 'phrase',
+      reviewRememberedStreak: 5,
+    }];
+
+    const out = mergeCorpusEntries(local, remote);
+    expect(out[0].userSentence).toBe('I made progress yesterday.');
+    expect(out[0].sentenceReviewDifficulty).toBe('word');
+    expect(out[0].reviewRememberedStreak).toBe(0);
+  });
 });
 
 describe('mergeVocabCards', () => {

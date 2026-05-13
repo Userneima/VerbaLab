@@ -36,6 +36,8 @@ type SyncableCorpusEntry = {
   lastReviewedAt?: string | null;
   nextReviewAt?: string | null;
   reviewStage?: number | null;
+  sentenceReviewDifficulty?: 'phrase' | 'word' | null;
+  reviewRememberedStreak?: number | null;
 };
 
 function pickCorpusReviewWinner<T extends SyncableCorpusEntry>(left: T, right: T): T {
@@ -100,6 +102,16 @@ export function mergeCorpusEntries<T extends SyncableCorpusEntry>(local: T[], re
         typeof reviewWinner.reviewStage === "number"
           ? reviewWinner.reviewStage
           : (contentWinner.reviewStage ?? 0),
+      sentenceReviewDifficulty:
+        reviewWinner.sentenceReviewDifficulty === 'word'
+          ? 'word'
+          : reviewWinner.sentenceReviewDifficulty === 'phrase'
+            ? 'phrase'
+            : (contentWinner.sentenceReviewDifficulty ?? 'phrase'),
+      reviewRememberedStreak:
+        typeof reviewWinner.reviewRememberedStreak === 'number'
+          ? reviewWinner.reviewRememberedStreak
+          : (contentWinner.reviewRememberedStreak ?? 0),
       timestamp: contentWinner.timestamp,
     } satisfies T);
   }

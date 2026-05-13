@@ -162,6 +162,10 @@ export function buildShuffledChunkTilePool(referenceSentence: string): SentenceT
   return shuffle(tokenizeSentenceToChunkedTiles(referenceSentence));
 }
 
+export function sentenceSupportsWordDifficultyUpgrade(referenceSentence: string): boolean {
+  return tokenizeSentenceToChunkedTiles(referenceSentence).length < tokenizeSentenceToTiles(referenceSentence).length;
+}
+
 export function verifyReconstructedSentence(selected: SentenceTile[], referenceSentence: string): boolean {
   const built = selected.map(t => t.text).join(' ');
   return normalizeForMatch(built) === normalizeForMatch(referenceSentence);

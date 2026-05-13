@@ -7,6 +7,7 @@ import { corpusDuplicateGroupSizes, getCorpusDuplicateSummary } from '../utils/c
 import { isCorpusEntryDue } from '../utils/corpusReview';
 import { VocabReproducePanel } from '../components/VocabReproducePanel';
 import { VirtualizedStack } from '../components/VirtualizedStack';
+import { sentenceSupportsWordDifficultyUpgrade } from '../utils/sentenceTileBank';
 
 const SHOW_ZH_STORAGE_KEY = 'ff_corpus_show_zh';
 
@@ -46,6 +47,7 @@ export function CorpusPage() {
   const [editingSentenceDraft, setEditingSentenceDraft] = useState('');
   const [reviewingSentenceId, setReviewingSentenceId] = useState<string | null>(null);
   const [reviewPassedSentenceId, setReviewPassedSentenceId] = useState<string | null>(null);
+  const [showDifficultyUpgradePrompt, setShowDifficultyUpgradePrompt] = useState(false);
 
   const sentenceHighlight = searchParams.get('sentence');
 
@@ -212,6 +214,7 @@ export function CorpusPage() {
   const closeReviewModal = useCallback(() => {
     setReviewingSentenceId(null);
     setReviewPassedSentenceId(null);
+    setShowDifficultyUpgradePrompt(false);
   }, []);
 
   const openReviewModal = useCallback(
@@ -220,6 +223,11 @@ export function CorpusPage() {
       if (!entry) return;
       setReviewingSentenceId(entryId);
       setReviewPassedSentenceId(null);
+      setShowDifficultyUpgradePrompt(
+        entry.sentenceReviewDifficulty === 'phrase' &&
+          entry.reviewRememberedStreak === 5 &&
+          sentenceSupportsWordDifficultyUpgrade(entry.userSentence),
+      );
       if (!entry.zhTranslation?.trim()) {
         void requestTranslationIfMissing(entry.id, entry.userSentence);
       }
@@ -244,6 +252,12 @@ export function CorpusPage() {
     store.markCorpusEntryStruggled(reviewingEntry.id);
     closeReviewModal();
   }, [closeReviewModal, reviewActionsUnlocked, reviewingEntry, store]);
+
+  const handleUpgradeCorpusDifficulty = useCallback(() => {
+    if (!reviewingEntry) return;
+    store.setCorpusEntryReviewDifficulty(reviewingEntry.id, 'word');
+    setShowDifficultyUpgradePrompt(false);
+  }, [reviewingEntry, store]);
 
   if (redirectToVocabReview) {
     return <Navigate to="/vocab-review" replace />;
@@ -618,6 +632,7 @@ export function CorpusPage() {
                     reviewingEntry.nativeThinking?.trim()
                   }
                   alreadyPassed={reviewPassedSentenceId === reviewingEntry.id}
+                  difficulty={reviewingEntry.sentenceReviewDifficulty}
                   onComplete={() => setReviewPassedSentenceId(reviewingEntry.id)}
                 />
               ) : (
@@ -654,6 +669,38 @@ export function CorpusPage() {
                   还不太熟
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reviewingEntry && showDifficultyUpgradePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 py-6">
+          <div className="w-full max-w-md rounded-3xl border border-white/70 bg-white shadow-2xl">
+            <div className="px-5 pt-5 pb-4">
+              <div className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700">
+                难度建议
+              </div>
+              <h4 className="mt-3 text-lg font-semibold text-gray-900">推荐提升到逐词模式</h4>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                这句话你已经连续 5 次都选了“记住了”。下次可以试试更细的逐词切分，练得更扎实一些。
+              </p>
+            </div>
+            <div className="grid gap-3 border-t border-gray-100 px-5 py-4 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setShowDifficultyUpgradePrompt(false)}
+                className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleUpgradeCorpusDifficulty}
+                className="rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-700"
+              >
+                提升难度
+              </button>
             </div>
           </div>
         </div>

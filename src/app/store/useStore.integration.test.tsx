@@ -179,6 +179,69 @@ describe('useAppStore integration', () => {
     expect(result.current.corpus[0].timestamp).toBe(addedAt);
     expect(result.current.corpus[0].lastReviewedAt).toBeTruthy();
     expect(result.current.corpus[0].reviewStage).toBe(1);
+    expect(result.current.corpus[0].reviewRememberedStreak).toBe(1);
+    expect(result.current.corpus[0].sentenceReviewDifficulty).toBe('phrase');
+  });
+
+  it('tracks corpus review difficulty and resets streak when difficulty changes', () => {
+    const { result } = renderHook(() => useAppStore(null));
+
+    act(() => {
+      result.current.clearAll();
+      result.current.addToCorpus({
+        verbId: 'v1',
+        verb: 'get',
+        collocationId: 'c1',
+        collocation: 'get better at',
+        userSentence: 'I get better at interviews with practice.',
+        isCorrect: true,
+        mode: 'test',
+        tags: ['get'],
+      });
+    });
+
+    const entryId = result.current.corpus[0]?.id;
+
+    act(() => {
+      result.current.markCorpusEntryRemembered(entryId!);
+      result.current.markCorpusEntryRemembered(entryId!);
+      result.current.setCorpusEntryReviewDifficulty(entryId!, 'word');
+    });
+
+    expect(result.current.corpus[0].sentenceReviewDifficulty).toBe('word');
+    expect(result.current.corpus[0].reviewRememberedStreak).toBe(0);
+  });
+
+  it('breaks corpus remembered streak when user only views or struggles', () => {
+    const { result } = renderHook(() => useAppStore(null));
+
+    act(() => {
+      result.current.clearAll();
+      result.current.addToCorpus({
+        verbId: 'v1',
+        verb: 'get',
+        collocationId: 'c1',
+        collocation: 'get better at',
+        userSentence: 'I get better at interviews with practice.',
+        isCorrect: true,
+        mode: 'test',
+        tags: ['get'],
+      });
+    });
+
+    const entryId = result.current.corpus[0]?.id;
+
+    act(() => {
+      result.current.markCorpusEntryRemembered(entryId!);
+      result.current.markCorpusEntryViewed(entryId!);
+    });
+    expect(result.current.corpus[0].reviewRememberedStreak).toBe(0);
+
+    act(() => {
+      result.current.markCorpusEntryRemembered(entryId!);
+      result.current.markCorpusEntryStruggled(entryId!);
+    });
+    expect(result.current.corpus[0].reviewRememberedStreak).toBe(0);
   });
 
   it('reopens resolved stuck points', () => {

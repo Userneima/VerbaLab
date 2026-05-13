@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { CheckCircle2, Sparkles } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import {
   buildShuffledChunkTilePool,
   type SentenceTile,
@@ -18,6 +18,7 @@ type Props = {
   cueZh?: string;
   onComplete: () => void;
   alreadyPassed: boolean;
+  difficulty?: SentenceTileDifficulty;
 };
 
 export function VocabReproducePanel({
@@ -26,10 +27,9 @@ export function VocabReproducePanel({
   cueZh,
   onComplete,
   alreadyPassed,
+  difficulty = 'phrase',
 }: Props) {
   const sessionKey = `${referenceSentence}\0${targetCollocation}`;
-  const [difficulty, setDifficulty] = useState<SentenceTileDifficulty>('phrase');
-  const [retryingAfterPass, setRetryingAfterPass] = useState(false);
 
   const wordTiles = useMemo(() => tokenizeSentenceToTiles(referenceSentence), [referenceSentence]);
   const phraseTiles = useMemo(
@@ -37,7 +37,6 @@ export function VocabReproducePanel({
     [referenceSentence],
   );
   const refTiles = difficulty === 'word' ? wordTiles : phraseTiles;
-  const hasHarderMode = phraseTiles.length < wordTiles.length;
 
   const [pool, setPool] = useState<SentenceTile[]>([]);
   const [selected, setSelected] = useState<SentenceTile[]>([]);
@@ -56,9 +55,9 @@ export function VocabReproducePanel({
   }, [difficulty, referenceSentence, wordTiles]);
 
   useEffect(() => {
-    if (alreadyPassed && !retryingAfterPass) return;
+    if (alreadyPassed) return;
     resetCurrentRound();
-  }, [alreadyPassed, resetCurrentRound, retryingAfterPass, sessionKey]);
+  }, [alreadyPassed, resetCurrentRound, sessionKey]);
 
   const moveToAnswer = (tile: SentenceTile) => {
     setError(null);
@@ -83,33 +82,16 @@ export function VocabReproducePanel({
       return;
     }
     setDone(true);
-    setRetryingAfterPass(false);
     if (!alreadyPassed) onComplete();
   };
 
   const canCheck = refTiles.length > 0 && selected.length === refTiles.length && !done;
-  const canRaiseDifficulty = hasHarderMode && difficulty === 'phrase';
 
-  if ((alreadyPassed || done) && !retryingAfterPass) {
+  if (alreadyPassed || done) {
     return (
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-          <CheckCircle2 size={16} className="shrink-0" />
-          句子复原正确，可标记复习结果。
-        </div>
-        {canRaiseDifficulty ? (
-          <button
-            type="button"
-            onClick={() => {
-              setDifficulty('word');
-              setRetryingAfterPass(true);
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-700 hover:bg-violet-100"
-          >
-            <Sparkles size={14} />
-            想更扎实的话，可提升到逐词模式再练一次
-          </button>
-        ) : null}
+      <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+        <CheckCircle2 size={16} className="shrink-0" />
+        句子复原正确，可标记复习结果。
       </div>
     );
   }
@@ -121,32 +103,13 @@ export function VocabReproducePanel({
   return (
     <div className="space-y-3 border border-violet-200 rounded-xl p-3 bg-violet-50/40">
       <p className="text-[11px] text-violet-900 font-medium leading-relaxed">
-        到期复习：先按中文提示复原英文句。默认先用更自然的短语块；觉得太简单再提升到逐词模式。
+        到期复习：先按中文提示复原英文句。
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-            difficulty === 'phrase'
-              ? 'bg-violet-100 text-violet-700'
-              : 'bg-gray-100 text-gray-500'
-          }`}
-        >
-          当前难度：短语块
+        <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-semibold text-violet-700">
+          当前难度：{difficulty === 'word' ? '逐词模式' : '短语块'}
         </span>
-        {hasHarderMode ? (
-          <button
-            type="button"
-            onClick={() => {
-              const nextDifficulty = difficulty === 'phrase' ? 'word' : 'phrase';
-              setDifficulty(nextDifficulty);
-              setRetryingAfterPass(nextDifficulty === 'word');
-            }}
-            className="rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-violet-700 hover:bg-violet-50"
-          >
-            {difficulty === 'phrase' ? '提升到逐词模式' : '切回短语块'}
-          </button>
-        ) : null}
       </div>
 
       <div>
