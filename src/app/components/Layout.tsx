@@ -35,33 +35,30 @@ type NavItem = {
   to: string;
   label: string;
   icon: LucideIcon;
-  subtitle?: string;
   exact?: boolean;
   badge?: (s: AppStore) => number;
 };
 
 const navItems: NavItem[] = [
-  { to: '/', label: '概览', icon: Home, subtitle: 'Overview', exact: true },
-  { to: '/foundry', label: '资产区', icon: BookOpen, subtitle: 'The Foundry', exact: false },
-  { to: '/lab', label: '实验室', icon: FlaskConical, subtitle: 'The Lab', exact: false },
-  { to: '/field', label: '实战仓', icon: Zap, subtitle: 'The Field', exact: false },
-  { to: '/word-lab', label: '词卡工坊', icon: Sparkles, subtitle: 'Word Lab', exact: false },
+  { to: '/', label: '概览', icon: Home, exact: true },
+  { to: '/foundry', label: '资产区', icon: BookOpen, exact: false },
+  { to: '/lab', label: '实验室', icon: FlaskConical, exact: false },
+  { to: '/field', label: '实战仓', icon: Zap, exact: false },
+  { to: '/word-lab', label: '词卡工坊', icon: Sparkles, exact: false },
   {
     to: '/vocab-review',
     label: '单词卡片',
     icon: BookMarked,
-    subtitle: 'Word Card',
     exact: false,
     badge: s => s.stats.vocabDueCount,
   },
-  { to: '/billing', label: 'AI 额度', icon: CreditCard, subtitle: 'Billing', exact: false },
+  { to: '/billing', label: 'AI 额度', icon: CreditCard, exact: false },
 ];
 
 const adminNavItem: NavItem = {
   to: '/admin',
   label: '管理后台',
   icon: Ticket,
-  subtitle: 'Admin',
   exact: false,
 };
 
@@ -160,7 +157,7 @@ function LayoutInner() {
 
       {/* Sidebar: 小屏抽屉，md+ 固定侧栏 */}
       <aside
-        className={`fixed md:static z-50 md:z-0 inset-y-0 left-0 flex flex-col min-h-0 w-[min(19rem,90vw)] md:w-64 max-w-[min(19rem,90vw)] md:max-w-none bg-[#0f172a] border-r border-slate-800 transition-transform duration-200 ease-out md:translate-x-0 ${
+        className={`fixed md:static z-50 md:z-0 inset-y-0 left-0 flex flex-col min-h-0 w-[min(16rem,90vw)] md:w-56 max-w-[min(16rem,90vw)] md:max-w-none bg-[#0f172a] border-r border-slate-800 transition-transform duration-200 ease-out md:translate-x-0 ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
@@ -206,26 +203,8 @@ function LayoutInner() {
                   }`}
                 >
                   <Icon size={18} className="shrink-0" />
-                  <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
-                    <div className="text-sm font-medium shrink-0">{item.label}</div>
-                    {item.subtitle && (
-                      <>
-                        <span
-                          className={`text-xs shrink-0 ${
-                            isActive ? 'text-indigo-200/80' : 'text-slate-600 group-hover:text-slate-400'
-                          }`}
-                        >
-                          |
-                        </span>
-                        <div
-                          className={`text-xs truncate ${
-                          isActive ? 'text-indigo-200' : 'text-slate-500 group-hover:text-slate-400'
-                          }`}
-                        >
-                          {item.subtitle}
-                        </div>
-                      </>
-                    )}
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <div className="truncate text-sm font-medium">{item.label}</div>
                   </div>
                   {n > 0 && (
                     <span className="shrink-0 text-[10px] font-semibold bg-amber-500 text-white min-w-[1.25rem] h-5 px-1 rounded-full flex items-center justify-center">
