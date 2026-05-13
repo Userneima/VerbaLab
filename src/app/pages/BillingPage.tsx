@@ -38,10 +38,10 @@ const PLANS = [
 ];
 
 const BILLING_CACHE_KEY = 'ff_billing_summary_cache_v1';
-const BILLING_CACHE_TTL_MS = 2 * 60 * 1000;
+const BILLING_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function loadBillingSummaryCache() {
-  return loadSessionPageCache(BILLING_CACHE_KEY, (raw) => quotaSummarySchema.parse(raw));
+  return loadSessionPageCache(BILLING_CACHE_KEY, (raw) => quotaSummarySchema.parse(raw), 'local');
 }
 
 function formatDate(value?: string): string {
@@ -85,7 +85,7 @@ export function BillingPage() {
     try {
       const nextSummary = await getQuotaSummary();
       setSummary(nextSummary);
-      saveSessionPageCache(BILLING_CACHE_KEY, nextSummary);
+      saveSessionPageCache(BILLING_CACHE_KEY, nextSummary, 'local');
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载 AI 生成次数失败');
     } finally {
@@ -175,6 +175,12 @@ export function BillingPage() {
                 刷新
               </button>
             </div>
+
+            {cachedSummary && (
+              <div className="mt-3 text-xs text-slate-400">
+                已记住上次结果，切回来会直接显示；后台会在需要时静默刷新。
+              </div>
+            )}
 
             {loading && !summary ? (
               <div className="mt-8 flex items-center justify-center py-12 text-slate-500">

@@ -32,7 +32,7 @@ import {
 type AdminTab = 'overview' | 'invites' | 'usage' | 'quota' | 'alerts';
 
 const ADMIN_CACHE_KEY = 'ff_admin_dashboard_cache_v1';
-const ADMIN_CACHE_TTL_MS = 2 * 60 * 1000;
+const ADMIN_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const adminPageCacheSchema = z.object({
   overview: adminOverviewSchema.nullable(),
@@ -45,7 +45,7 @@ const adminPageCacheSchema = z.object({
 type AdminPageCache = z.infer<typeof adminPageCacheSchema>;
 
 function loadAdminPageCache() {
-  return loadSessionPageCache(ADMIN_CACHE_KEY, (raw) => adminPageCacheSchema.parse(raw));
+  return loadSessionPageCache(ADMIN_CACHE_KEY, (raw) => adminPageCacheSchema.parse(raw), 'local');
 }
 
 const TABS: Array<{ key: AdminTab; label: string; icon: LucideIcon }> = [
@@ -560,9 +560,11 @@ export function AdminPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canManage = isInviteAdminEmail(user?.email);
+  const hasRenderableSnapshot =
+    overview !== null || usageRows.length > 0 || quotaRows.length > 0 || alerts.length > 0;
 
   const persistAdminCache = useCallback((value: AdminPageCache) => {
-    saveSessionPageCache(ADMIN_CACHE_KEY, value);
+    saveSessionPageCache(ADMIN_CACHE_KEY, value, 'local');
   }, []);
 
   const loadAdminData = useCallback(async (silent = false, searchQuery = quotaSearchQuery) => {
@@ -599,7 +601,7 @@ export function AdminPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!canManage) {
-      clearSessionPageCache(ADMIN_CACHE_KEY);
+      clearSessionPageCache(ADMIN_CACHE_KEY, 'local');
       setLoading(false);
       return;
     }
@@ -745,7 +747,13 @@ export function AdminPage() {
           </div>
         )}
 
-        {loading ? (
+        {cachedAdminData && (
+          <div className="text-xs text-slate-400">
+            已记住上次后台快照，切回来会先显示旧数据，再静默刷新。
+          </div>
+        )}
+
+        {loading && !hasRenderableSnapshot ? (
           <div className="flex min-h-[240px] items-center justify-center rounded-3xl border border-slate-200 bg-white text-slate-500">
             <Loader2 size={22} className="mr-2 animate-spin" />
             正在加载管理员数据…

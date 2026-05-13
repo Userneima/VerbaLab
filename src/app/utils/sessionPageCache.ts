@@ -3,12 +3,19 @@ export type SessionPageCacheEnvelope<T> = {
   value: T;
 };
 
+type CacheStorageMode = 'session' | 'local';
+
+function getStorage(mode: CacheStorageMode) {
+  return mode === 'local' ? window.localStorage : window.sessionStorage;
+}
+
 export function loadSessionPageCache<T>(
   key: string,
   parser: (raw: unknown) => T,
+  mode: CacheStorageMode = 'session',
 ): SessionPageCacheEnvelope<T> | null {
   try {
-    const raw = sessionStorage.getItem(key);
+    const raw = getStorage(mode).getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as SessionPageCacheEnvelope<unknown>;
     if (typeof parsed?.cachedAt !== 'string') return null;
@@ -21,21 +28,21 @@ export function loadSessionPageCache<T>(
   }
 }
 
-export function saveSessionPageCache<T>(key: string, value: T) {
+export function saveSessionPageCache<T>(key: string, value: T, mode: CacheStorageMode = 'session') {
   try {
     const payload: SessionPageCacheEnvelope<T> = {
       cachedAt: new Date().toISOString(),
       value,
     };
-    sessionStorage.setItem(key, JSON.stringify(payload));
+    getStorage(mode).setItem(key, JSON.stringify(payload));
   } catch {
     // ignore storage write failures
   }
 }
 
-export function clearSessionPageCache(key: string) {
+export function clearSessionPageCache(key: string, mode: CacheStorageMode = 'session') {
   try {
-    sessionStorage.removeItem(key);
+    getStorage(mode).removeItem(key);
   } catch {
     // ignore storage removal failures
   }
