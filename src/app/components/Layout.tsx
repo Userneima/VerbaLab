@@ -3,8 +3,6 @@ import {
   BookOpen,
   FlaskConical,
   Zap,
-  Library,
-  AlertCircle,
   Home,
   Cloud,
   CloudOff,
@@ -14,7 +12,6 @@ import {
   ArrowDownCircle,
   LogOut,
   User,
-  LifeBuoy,
   Menu,
   X,
   Sparkles,
@@ -126,7 +123,7 @@ function LayoutInner() {
   const visibleSystemNavItems = canManageInvites ? [...systemNavItems, adminNavItem] : systemNavItems;
 
   const progressLinkClass = (isActive: boolean) =>
-    `flex flex-col items-start justify-between rounded-xl px-3 py-2.5 transition-all border min-h-[4.5rem] ${
+    `flex items-center justify-between rounded-xl px-3 py-2.5 transition-all border min-h-[3.5rem] ${
       isActive
         ? 'bg-indigo-600/25 border-indigo-500/40 text-white ring-1 ring-indigo-400/30'
         : 'bg-slate-800 border-slate-700/80 text-slate-300 hover:bg-slate-700/60 hover:border-slate-600'
@@ -271,38 +268,26 @@ function LayoutInner() {
                 )
               }
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <BookMarked size={14} className="text-violet-400 opacity-95 shrink-0" />
-                <div className="text-slate-400 text-[11px] leading-none">词卡</div>
-              </div>
-              <div className="text-violet-400 font-bold text-lg leading-none mt-2">
+              <div className="text-slate-400 text-[11px] leading-none">词卡</div>
+              <div className="text-violet-400 font-bold text-lg leading-none">
                 {store.stats.vocabCardCount}
               </div>
             </NavLink>
             <NavLink to="/corpus" className={({ isActive }) => progressLinkClass(isActive)}>
-              <div className="flex items-center gap-2 min-w-0">
-                <Library size={14} className="text-emerald-400 opacity-95 shrink-0" />
-                <div className="text-slate-400 text-[11px] leading-none">语料库</div>
-              </div>
-              <div className="text-emerald-400 font-bold text-lg leading-none mt-2">
+              <div className="text-slate-400 text-[11px] leading-none">语料库</div>
+              <div className="text-emerald-400 font-bold text-lg leading-none">
                 {store.stats.corpusSize}
               </div>
             </NavLink>
             <NavLink to="/errors" className={({ isActive }) => progressLinkClass(isActive)}>
-              <div className="flex items-center gap-2 min-w-0">
-                <AlertCircle size={14} className="text-red-400 opacity-95 shrink-0" />
-                <div className="text-slate-400 text-[11px] leading-none">错题</div>
-              </div>
-              <div className="text-red-400 font-bold text-lg leading-none mt-2">
+              <div className="text-slate-400 text-[11px] leading-none">错题</div>
+              <div className="text-red-400 font-bold text-lg leading-none">
                 {store.stats.errorCount}
               </div>
             </NavLink>
             <NavLink to="/stuck" className={({ isActive }) => progressLinkClass(isActive)}>
-              <div className="flex items-center gap-2 min-w-0">
-                <LifeBuoy size={14} className="text-amber-400 opacity-95 shrink-0" />
-                <div className="text-slate-400 text-[11px] leading-none">卡壳点</div>
-              </div>
-              <div className="text-amber-400 font-bold text-lg leading-none mt-2">
+              <div className="text-slate-400 text-[11px] leading-none">卡壳点</div>
+              <div className="text-amber-400 font-bold text-lg leading-none">
                 {store.stats.stuckCount}
               </div>
             </NavLink>
