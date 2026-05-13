@@ -9,6 +9,7 @@ import {
   mergeStandardizedTags,
 } from '../utils/vocabCardScenarioTags';
 import { isVocabCardDue } from '../utils/vocabCardReview';
+import { getNextDueVocabCardId } from '../utils/vocabReviewQueue';
 import {
   VocabCardExamplesSection,
   hasDetailedRegisterGuide,
@@ -203,6 +204,28 @@ export function VocabCardDetailPage() {
   const reviewActionsUnlocked = !isDue || anyReproPassed;
   const registerGuideDetailed = hasDetailedRegisterGuide(card);
 
+  const advanceAfterReview = useCallback(
+    (action: 'viewed' | 'remembered' | 'struggled') => {
+      const nextCardId = getNextDueVocabCardId(store.vocabCards, card.id);
+
+      if (action === 'viewed') {
+        store.markVocabCardViewed(card.id);
+      } else if (action === 'remembered') {
+        store.markVocabCardRemembered(card.id);
+      } else {
+        store.markVocabCardStruggled(card.id);
+      }
+
+      if (nextCardId) {
+        navigate(`/vocab/${nextCardId}`, { replace: true });
+        return;
+      }
+
+      navigate('/vocab-review', { replace: true });
+    },
+    [card.id, navigate, store],
+  );
+
   const hydrateRegisterGuide = useCallback(async () => {
     const current = store.vocabCards.find(c => c.id === id);
     if (!current || registerGuideLoading || hasDetailedRegisterGuide(current)) return;
@@ -304,9 +327,9 @@ export function VocabCardDetailPage() {
             hasSpokenReviewOption={hasSpokenReviewOption}
             reviewSentenceMode={reviewSentenceMode}
             onReviewSentenceModeChange={setReviewSentenceMode}
-            onViewed={() => store.markVocabCardViewed(card.id)}
-            onRemembered={() => store.markVocabCardRemembered(card.id)}
-            onStruggled={() => store.markVocabCardStruggled(card.id)}
+            onViewed={() => advanceAfterReview('viewed')}
+            onRemembered={() => advanceAfterReview('remembered')}
+            onStruggled={() => advanceAfterReview('struggled')}
           />
         </div>
       </div>

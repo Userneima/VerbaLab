@@ -4,6 +4,7 @@ import { ArrowUpDown, BookMarked, ChevronRight, Search, Sparkles } from 'lucide-
 import { useStore } from '../store/StoreContext';
 import type { VocabCard } from '../store/useStore';
 import { isVocabCardDue } from '../utils/vocabCardReview';
+import { compareVocabCardsByHeadword, getDueVocabReviewQueue } from '../utils/vocabReviewQueue';
 
 function previewSentence(card: { items: { sentence: string }[] }): string {
   const s = card.items[0]?.sentence?.trim();
@@ -33,18 +34,6 @@ const POS_LABELS: Record<(typeof POS_TAG_ORDER)[number], string> = {
   '#prep.': '介词',
 };
 
-function normalizeHeadword(text: string): string {
-  return text.trim().toLowerCase();
-}
-
-function compareHeadword(a: VocabCard, b: VocabCard): number {
-  const byHeadword = normalizeHeadword(a.headword).localeCompare(normalizeHeadword(b.headword), 'en', {
-    sensitivity: 'base',
-  });
-  if (byHeadword !== 0) return byHeadword;
-  return b.timestamp.localeCompare(a.timestamp);
-}
-
 function getInitialGroup(card: VocabCard): string {
   const match = card.headword.trim().match(/[A-Za-z]/);
   return match ? match[0].toUpperCase() : '#';
@@ -65,20 +54,16 @@ function sortCards(cards: VocabCard[], mode: DisplayMode): VocabCard[] {
   }
 
   if (mode === 'due') {
-    list.sort((a, b) => {
-      const aDue = isVocabCardDue(a.nextDueAt) ? 0 : 1;
-      const bDue = isVocabCardDue(b.nextDueAt) ? 0 : 1;
-      if (aDue !== bDue) return aDue - bDue;
-      if (a.nextDueAt && b.nextDueAt && a.nextDueAt !== b.nextDueAt) {
-        return a.nextDueAt.localeCompare(b.nextDueAt);
-      }
-      return compareHeadword(a, b);
-    });
-    return list;
+    const dueQueue = getDueVocabReviewQueue(list);
+    const dueIds = new Set(dueQueue.map((card) => card.id));
+    const remaining = list
+      .filter((card) => !dueIds.has(card.id))
+      .sort(compareVocabCardsByHeadword);
+    return [...dueQueue, ...remaining];
   }
 
   if (mode === 'alphabet' || mode === 'initial') {
-    list.sort(compareHeadword);
+    list.sort(compareVocabCardsByHeadword);
     return list;
   }
 
@@ -86,7 +71,7 @@ function sortCards(cards: VocabCard[], mode: DisplayMode): VocabCard[] {
     const posDiff = POS_TAG_ORDER.indexOf(getPosGroup(a) as (typeof POS_TAG_ORDER)[number]) -
       POS_TAG_ORDER.indexOf(getPosGroup(b) as (typeof POS_TAG_ORDER)[number]);
     if (posDiff !== 0) return posDiff;
-    return compareHeadword(a, b);
+    return compareVocabCardsByHeadword(a, b);
   });
   return list;
 }
@@ -150,7 +135,7 @@ export function VocabReviewPage() {
   );
   const visibleCards = useMemo(() => {
     if (displayMode !== 'due' || q.trim()) return cards;
-    return sortCards(cards.filter((card) => isVocabCardDue(card.nextDueAt)), 'due').slice(0, reviewLimit);
+    return getDueVocabReviewQueue(cards).slice(0, reviewLimit);
   }, [cards, displayMode, q, reviewLimit]);
   const sections = useMemo(() => buildSections(visibleCards, displayMode), [visibleCards, displayMode]);
   const currentMode = DISPLAY_MODE_OPTIONS.find((option) => option.value === displayMode);
