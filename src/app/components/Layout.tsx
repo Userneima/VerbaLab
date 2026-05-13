@@ -52,6 +52,9 @@ const navItems: NavItem[] = [
     exact: false,
     badge: s => s.stats.vocabDueCount,
   },
+];
+
+const systemNavItems: NavItem[] = [
   { to: '/billing', label: 'AI 额度', icon: CreditCard, exact: false },
 ];
 
@@ -61,10 +64,6 @@ const adminNavItem: NavItem = {
   icon: Ticket,
   exact: false,
 };
-
-const systemNavItems: NavItem[] = [
-  { to: '/billing', label: 'AI 额度', icon: CreditCard, exact: false },
-];
 
 export function Layout() {
   return (
@@ -127,59 +126,18 @@ function LayoutInner() {
   const visibleSystemNavItems = canManageInvites ? [...systemNavItems, adminNavItem] : systemNavItems;
 
   const progressLinkClass = (isActive: boolean) =>
-    `flex items-center gap-3 rounded-2xl px-3 py-3 transition-all border ${
+    `flex items-center gap-3 rounded-xl p-3 transition-all border ${
       isActive
-        ? 'bg-indigo-600/25 border-indigo-500/40 text-white ring-1 ring-indigo-400/30 shadow-[0_10px_24px_rgba(79,70,229,0.18)]'
-        : 'bg-slate-800/90 border-slate-700/80 text-slate-300 hover:bg-slate-700/70 hover:border-slate-600'
+        ? 'bg-indigo-600/25 border-indigo-500/40 text-white ring-1 ring-indigo-400/30'
+        : 'bg-slate-800 border-slate-700/80 text-slate-300 hover:bg-slate-700/60 hover:border-slate-600'
     }`;
 
   const navLinkClass = (isActive: boolean) =>
-    `flex items-center gap-3 rounded-2xl px-3.5 py-3 transition-all ${
+    `flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all ${
       isActive
-        ? 'bg-indigo-600 text-white shadow-[0_14px_34px_rgba(79,70,229,0.28)]'
-        : 'text-slate-200 hover:bg-slate-800/80'
+        ? 'bg-indigo-600 text-white shadow-[0_12px_24px_rgba(79,70,229,0.22)]'
+        : 'bg-slate-900/20 text-slate-200 hover:bg-slate-800/80'
     }`;
-
-  const navLabelClass = (isActive: boolean) =>
-    isActive ? 'text-[15px] font-semibold tracking-[0.01em]' : 'text-[15px] font-medium tracking-[0.01em] text-slate-200';
-
-  const renderNavGroup = (items: NavItem[]) => (
-    <nav className="space-y-1.5">
-      {items.map(item => {
-        const Icon = item.icon;
-        const isActive = item.exact
-          ? location.pathname === item.to
-          : location.pathname.startsWith(item.to);
-        const n = item.badge?.(store) ?? 0;
-        return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.exact}
-            className={navLinkClass(isActive)}
-          >
-            <div
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors ${
-                isActive
-                  ? 'border-white/10 bg-white/10 text-white'
-                  : 'border-slate-700/70 bg-slate-900/40 text-slate-300'
-              }`}
-            >
-              <Icon size={18} className="shrink-0" />
-            </div>
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <div className={`truncate ${navLabelClass(isActive)}`}>{item.label}</div>
-            </div>
-            {n > 0 && (
-              <span className="shrink-0 text-[10px] font-semibold bg-amber-500 text-white min-w-[1.35rem] h-5 px-1.5 rounded-full flex items-center justify-center">
-                {n > 99 ? '99+' : n}
-              </span>
-            )}
-          </NavLink>
-        );
-      })}
-    </nav>
-  );
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] flex-col md:flex-row bg-gray-50 overflow-hidden">
@@ -214,14 +172,14 @@ function LayoutInner() {
         }`}
       >
         {/* Logo */}
-        <div className="p-4 md:p-5 border-b border-slate-800 shrink-0 flex items-start justify-between gap-2">
+        <div className="p-4 md:p-6 border-b border-slate-700 shrink-0 flex items-start justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 bg-indigo-500 rounded-2xl flex items-center justify-center shrink-0 shadow-[0_14px_32px_rgba(79,70,229,0.32)]">
+            <div className="w-9 h-9 bg-indigo-500 rounded-xl flex items-center justify-center shrink-0">
               <span className="text-white font-bold text-sm">VL</span>
             </div>
             <div className="min-w-0">
-              <div className="text-white font-semibold text-sm leading-tight">VerbaLab</div>
-              <div className="text-slate-500 text-[11px] mt-1">英语输出训练台</div>
+              <div className="text-white font-bold text-sm leading-tight">VerbaLab</div>
+              <div className="text-slate-400 text-xs">v2.0 · 动词驱动</div>
             </div>
           </div>
           <button
@@ -235,29 +193,73 @@ function LayoutInner() {
         </div>
 
         {/* 主导航：可滚动 */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
-          <section className="space-y-2">
-            <div className="px-2 text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-              学习入口
-            </div>
-            <div className="rounded-[24px] border border-slate-800/90 bg-slate-900/35 p-2">
-              {renderNavGroup(navItems)}
-            </div>
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+          <section className="space-y-1">
+            <div className="px-2 text-[11px] font-medium tracking-[0.12em] text-slate-500 uppercase">学习入口</div>
+            <nav className="space-y-1">
+              {navItems.map(item => {
+                const Icon = item.icon;
+                const isActive = item.exact
+                  ? location.pathname === item.to
+                  : location.pathname.startsWith(item.to);
+                const n = item.badge?.(store) ?? 0;
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.exact}
+                    className={navLinkClass(isActive)}
+                  >
+                    <Icon size={18} className={`shrink-0 ${isActive ? 'text-white' : 'text-slate-300'}`} />
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <div className={`truncate text-sm ${isActive ? 'font-semibold' : 'font-medium'}`}>{item.label}</div>
+                    </div>
+                    {n > 0 && (
+                      <span className="shrink-0 text-[10px] font-semibold bg-amber-500 text-white min-w-[1.25rem] h-5 px-1 rounded-full flex items-center justify-center">
+                        {n > 99 ? '99+' : n}
+                      </span>
+                    )}
+                  </NavLink>
+                );
+              })}
+            </nav>
           </section>
 
-          <section className="space-y-2">
-            <div className="px-2 text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-              系统
-            </div>
-            <div className="rounded-[24px] border border-slate-800/90 bg-slate-900/20 p-2">
-              {renderNavGroup(visibleSystemNavItems)}
-            </div>
+          <section className="space-y-1 pt-2 border-t border-slate-800/80">
+            <div className="px-2 text-[11px] font-medium tracking-[0.12em] text-slate-500 uppercase">系统</div>
+            <nav className="space-y-1">
+              {visibleSystemNavItems.map(item => {
+                const Icon = item.icon;
+                const isActive = item.exact
+                  ? location.pathname === item.to
+                  : location.pathname.startsWith(item.to);
+                const n = item.badge?.(store) ?? 0;
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.exact}
+                    className={navLinkClass(isActive)}
+                  >
+                    <Icon size={18} className={`shrink-0 ${isActive ? 'text-white' : 'text-slate-300'}`} />
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <div className={`truncate text-sm ${isActive ? 'font-semibold' : 'font-medium'}`}>{item.label}</div>
+                    </div>
+                    {n > 0 && (
+                      <span className="shrink-0 text-[10px] font-semibold bg-amber-500 text-white min-w-[1.25rem] h-5 px-1 rounded-full flex items-center justify-center">
+                        {n > 99 ? '99+' : n}
+                      </span>
+                    )}
+                  </NavLink>
+                );
+              })}
+            </nav>
           </section>
         </div>
 
         {/* 学习进度：语料库 / 错题 / 卡壳点入口 */}
-        <div className="p-4 border-t border-slate-800 space-y-2 shrink-0 bg-[#0f172a]">
-          <div className="px-2 text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase mb-2">学习进度</div>
+        <div className="p-4 border-t border-slate-700 space-y-2 shrink-0 bg-[#0f172a]">
+          <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">学习进度</div>
           <div className="grid grid-cols-2 gap-2">
             <NavLink
               to="/vocab-review"
@@ -308,12 +310,12 @@ function LayoutInner() {
         </div>
 
         {/* User info — 固定在侧栏底部 */}
-        <div className="px-4 pb-safe md:pb-4 border-t border-slate-800 pt-3 shrink-0 bg-[#0f172a]">
+        <div className="px-4 pb-safe md:pb-4 border-t border-slate-700 pt-3 shrink-0 bg-[#0f172a]">
           <div className="relative" ref={userMenuRef}>
             <button
               type="button"
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="w-full flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900/30 px-3 py-2.5 text-left text-slate-300 transition-all hover:bg-slate-800/80"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition-all text-left"
               aria-expanded={showUserMenu}
               aria-haspopup="true"
             >
