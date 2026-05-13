@@ -126,7 +126,7 @@ function LayoutInner() {
   const visibleSystemNavItems = canManageInvites ? [...systemNavItems, adminNavItem] : systemNavItems;
 
   const progressLinkClass = (isActive: boolean) =>
-    `flex items-center gap-3 rounded-xl p-3 transition-all border ${
+    `flex flex-col items-start justify-between rounded-xl px-3 py-2.5 transition-all border min-h-[4.5rem] ${
       isActive
         ? 'bg-indigo-600/25 border-indigo-500/40 text-white ring-1 ring-indigo-400/30'
         : 'bg-slate-800 border-slate-700/80 text-slate-300 hover:bg-slate-700/60 hover:border-slate-600'
@@ -271,39 +271,39 @@ function LayoutInner() {
                 )
               }
             >
-              <BookMarked size={16} className="text-violet-400 opacity-90 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="text-slate-500 text-[11px] leading-tight">词卡</div>
-                <div className="text-violet-400 font-bold text-lg leading-tight mt-0.5">
-                  {store.stats.vocabCardCount}
-                </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <BookMarked size={14} className="text-violet-400 opacity-95 shrink-0" />
+                <div className="text-slate-400 text-[11px] leading-none">词卡</div>
+              </div>
+              <div className="text-violet-400 font-bold text-lg leading-none mt-2">
+                {store.stats.vocabCardCount}
               </div>
             </NavLink>
             <NavLink to="/corpus" className={({ isActive }) => progressLinkClass(isActive)}>
-              <Library size={16} className="text-emerald-400 opacity-90 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="text-slate-500 text-[11px] leading-tight">语料库</div>
-                <div className="text-emerald-400 font-bold text-lg leading-tight mt-0.5">
-                  {store.stats.corpusSize}
-                </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <Library size={14} className="text-emerald-400 opacity-95 shrink-0" />
+                <div className="text-slate-400 text-[11px] leading-none">语料库</div>
+              </div>
+              <div className="text-emerald-400 font-bold text-lg leading-none mt-2">
+                {store.stats.corpusSize}
               </div>
             </NavLink>
             <NavLink to="/errors" className={({ isActive }) => progressLinkClass(isActive)}>
-              <AlertCircle size={16} className="text-red-400 opacity-90 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="text-slate-500 text-[11px] leading-tight">错题</div>
-                <div className="text-red-400 font-bold text-lg leading-tight mt-0.5">
-                  {store.stats.errorCount}
-                </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertCircle size={14} className="text-red-400 opacity-95 shrink-0" />
+                <div className="text-slate-400 text-[11px] leading-none">错题</div>
+              </div>
+              <div className="text-red-400 font-bold text-lg leading-none mt-2">
+                {store.stats.errorCount}
               </div>
             </NavLink>
             <NavLink to="/stuck" className={({ isActive }) => progressLinkClass(isActive)}>
-              <LifeBuoy size={16} className="text-amber-400 opacity-90 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="text-slate-500 text-[11px] leading-tight">卡壳点</div>
-                <div className="text-amber-400 font-bold text-lg leading-tight mt-0.5">
-                  {store.stats.stuckCount}
-                </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <LifeBuoy size={14} className="text-amber-400 opacity-95 shrink-0" />
+                <div className="text-slate-400 text-[11px] leading-none">卡壳点</div>
+              </div>
+              <div className="text-amber-400 font-bold text-lg leading-none mt-2">
+                {store.stats.stuckCount}
               </div>
             </NavLink>
           </div>
