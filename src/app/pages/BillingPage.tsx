@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Copy, CreditCard, Loader2, MessageCircle, QrCode, RefreshCw, ShieldCheck, Sparkles, WalletCards } from 'lucide-react';
 import { getQuotaSummary, type AiQuotaSummary } from '../utils/api';
+import { quotaSummarySchema } from '../utils/api/quota';
 import { useAuth } from '../store/AuthContext';
 import { BILLING_WECHAT_ID, BILLING_WECHAT_QR_URL } from '../config/billingContact';
+import {
+  isSessionPageCacheFresh,
+  loadSessionPageCache,
+  saveSessionPageCache,
+} from '../utils/sessionPageCache';
 
 const PLANS = [
   {
@@ -31,6 +37,13 @@ const PLANS = [
   },
 ];
 
+const BILLING_CACHE_KEY = 'ff_billing_summary_cache_v1';
+const BILLING_CACHE_TTL_MS = 2 * 60 * 1000;
+
+function loadBillingSummaryCache() {
+  return loadSessionPageCache(BILLING_CACHE_KEY, (raw) => quotaSummarySchema.parse(raw));
+}
+
 function formatDate(value?: string): string {
   if (!value) return '无到期时间';
   const date = new Date(value);
@@ -55,23 +68,29 @@ function formatLedgerTime(value: string): string {
 
 export function BillingPage() {
   const { user } = useAuth();
-  const [summary, setSummary] = useState<AiQuotaSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedSummary = loadBillingSummaryCache();
+  const [summary, setSummary] = useState<AiQuotaSummary | null>(cachedSummary?.value ?? null);
+  const [loading, setLoading] = useState(!cachedSummary);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<(typeof PLANS)[number] | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   const accountLabel = user?.email || user?.id || '当前账号';
 
-  async function loadSummary() {
-    setLoading(true);
+  async function loadSummary(silent = false) {
+    if (silent) setRefreshing(true);
+    else setLoading(true);
     setError(null);
     try {
-      setSummary(await getQuotaSummary());
+      const nextSummary = await getQuotaSummary();
+      setSummary(nextSummary);
+      saveSessionPageCache(BILLING_CACHE_KEY, nextSummary);
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载 AI 生成次数失败');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -87,7 +106,13 @@ export function BillingPage() {
   }
 
   useEffect(() => {
-    void loadSummary();
+    if (!cachedSummary) {
+      void loadSummary();
+      return;
+    }
+    if (!isSessionPageCacheFresh(cachedSummary.cachedAt, BILLING_CACHE_TTL_MS)) {
+      void loadSummary(true);
+    }
   }, []);
 
   const quotaRows = useMemo(() => {
@@ -142,16 +167,16 @@ export function BillingPage() {
               </div>
               <button
                 type="button"
-                onClick={loadSummary}
-                disabled={loading}
+                onClick={() => void loadSummary(true)}
+                disabled={loading || refreshing}
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               >
-                <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+                <RefreshCw size={15} className={loading || refreshing ? 'animate-spin' : ''} />
                 刷新
               </button>
             </div>
 
-            {loading ? (
+            {loading && !summary ? (
               <div className="mt-8 flex items-center justify-center py-12 text-slate-500">
                 <Loader2 size={24} className="animate-spin mr-2" />
                 加载中…

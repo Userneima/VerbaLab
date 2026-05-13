@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router';
 import { Activity, AlertTriangle, BarChart3, Loader2, RefreshCw, Search, Shield, Ticket, Unlock, WalletCards, type LucideIcon } from 'lucide-react';
+import { z } from 'zod';
 import { useAuth } from '../store/AuthContext';
 import { isInviteAdminEmail } from '../utils/inviteAdmin';
 import {
+  adminAlertsSchema,
+  adminInviteUsageSchema,
+  adminOverviewSchema,
+  adminQuotaUsersSchema,
   grantAdminUserQuota,
   getAdminAlerts,
   getAdminInviteUsage,
@@ -17,8 +22,31 @@ import {
   type AdminQuotaUserRow,
 } from '../utils/api';
 import { InviteCodesPage } from './InviteCodesPage';
+import {
+  clearSessionPageCache,
+  isSessionPageCacheFresh,
+  loadSessionPageCache,
+  saveSessionPageCache,
+} from '../utils/sessionPageCache';
 
 type AdminTab = 'overview' | 'invites' | 'usage' | 'quota' | 'alerts';
+
+const ADMIN_CACHE_KEY = 'ff_admin_dashboard_cache_v1';
+const ADMIN_CACHE_TTL_MS = 2 * 60 * 1000;
+
+const adminPageCacheSchema = z.object({
+  overview: adminOverviewSchema.nullable(),
+  usageRows: adminInviteUsageSchema.shape.rows,
+  quotaRows: adminQuotaUsersSchema.shape.rows,
+  quotaSearchQuery: z.string().default(''),
+  alerts: adminAlertsSchema.shape.alerts,
+});
+
+type AdminPageCache = z.infer<typeof adminPageCacheSchema>;
+
+function loadAdminPageCache() {
+  return loadSessionPageCache(ADMIN_CACHE_KEY, (raw) => adminPageCacheSchema.parse(raw));
+}
 
 const TABS: Array<{ key: AdminTab; label: string; icon: LucideIcon }> = [
   { key: 'overview', label: '产品指标', icon: BarChart3 },
@@ -520,19 +548,24 @@ export function AdminPage() {
   const [params, setParams] = useSearchParams();
   const tabParam = params.get('tab') as AdminTab | null;
   const activeTab: AdminTab = tabParam && TABS.some(tab => tab.key === tabParam) ? tabParam : 'overview';
-  const [overview, setOverview] = useState<AdminOverview | null>(null);
-  const [usageRows, setUsageRows] = useState<AdminInviteUsageRow[]>([]);
-  const [quotaRows, setQuotaRows] = useState<AdminQuotaUserRow[]>([]);
-  const [quotaQuery, setQuotaQuery] = useState('');
-  const [quotaSearchQuery, setQuotaSearchQuery] = useState('');
-  const [alerts, setAlerts] = useState<AdminAlert[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedAdminData = loadAdminPageCache();
+  const [overview, setOverview] = useState<AdminOverview | null>(cachedAdminData?.value.overview ?? null);
+  const [usageRows, setUsageRows] = useState<AdminInviteUsageRow[]>(cachedAdminData?.value.usageRows ?? []);
+  const [quotaRows, setQuotaRows] = useState<AdminQuotaUserRow[]>(cachedAdminData?.value.quotaRows ?? []);
+  const [quotaQuery, setQuotaQuery] = useState(cachedAdminData?.value.quotaSearchQuery ?? '');
+  const [quotaSearchQuery, setQuotaSearchQuery] = useState(cachedAdminData?.value.quotaSearchQuery ?? '');
+  const [alerts, setAlerts] = useState<AdminAlert[]>(cachedAdminData?.value.alerts ?? []);
+  const [loading, setLoading] = useState(!cachedAdminData);
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canManage = isInviteAdminEmail(user?.email);
 
-  const loadAdminData = useCallback(async (silent = false) => {
+  const persistAdminCache = useCallback((value: AdminPageCache) => {
+    saveSessionPageCache(ADMIN_CACHE_KEY, value);
+  }, []);
+
+  const loadAdminData = useCallback(async (silent = false, searchQuery = quotaSearchQuery) => {
     if (!canManage) return;
     if (silent) setRefreshing(true);
     else setLoading(true);
@@ -541,28 +574,42 @@ export function AdminPage() {
       const [nextOverview, nextUsage, nextQuotaUsers, nextAlerts] = await Promise.all([
         getAdminOverview(),
         getAdminInviteUsage(),
-        getAdminQuotaUsers(quotaSearchQuery),
+        getAdminQuotaUsers(searchQuery),
         getAdminAlerts(),
       ]);
       setOverview(nextOverview);
       setUsageRows(nextUsage.rows);
       setQuotaRows(nextQuotaUsers.rows);
       setAlerts(nextAlerts.alerts);
+      persistAdminCache({
+        overview: nextOverview,
+        usageRows: nextUsage.rows,
+        quotaRows: nextQuotaUsers.rows,
+        quotaSearchQuery: searchQuery,
+        alerts: nextAlerts.alerts,
+      });
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '加载管理员后台失败');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [canManage, quotaSearchQuery]);
+  }, [canManage, persistAdminCache, quotaSearchQuery]);
 
   useEffect(() => {
     if (authLoading) return;
     if (!canManage) {
+      clearSessionPageCache(ADMIN_CACHE_KEY);
       setLoading(false);
       return;
     }
-    void loadAdminData();
+    if (!cachedAdminData) {
+      void loadAdminData();
+      return;
+    }
+    if (!isSessionPageCacheFresh(cachedAdminData.cachedAt, ADMIN_CACHE_TTL_MS)) {
+      void loadAdminData(true);
+    }
   }, [authLoading, canManage, loadAdminData]);
 
   const openAlerts = useMemo(() => alerts.filter(alert => alert.status === 'open').length, [alerts]);
@@ -574,11 +621,13 @@ export function AdminPage() {
   };
 
   const handleQuotaSearch = () => {
-    if (quotaQuery.trim() === quotaSearchQuery.trim()) {
+    const nextQuery = quotaQuery.trim();
+    if (nextQuery === quotaSearchQuery.trim()) {
       void loadAdminData(true);
       return;
     }
-    setQuotaSearchQuery(quotaQuery.trim());
+    setQuotaSearchQuery(nextQuery);
+    void loadAdminData(true, nextQuery);
   };
 
   const handleResolve = async (alertId: string) => {

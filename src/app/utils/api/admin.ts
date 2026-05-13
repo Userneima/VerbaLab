@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { getAiJson, postAiJson } from './client';
 import { quotaSummarySchema, type AiQuotaSummary } from './quota';
 
-const adminOverviewSchema = z.object({
+export const adminOverviewSchema = z.object({
   summary: z.object({
     tokensToday: z.number().default(0),
     tokens7d: z.number().default(0),
@@ -39,7 +39,7 @@ const adminInviteUsageRowSchema = z.object({
   blockReason: z.string().nullable().optional(),
 });
 
-const adminInviteUsageSchema = z.object({
+export const adminInviteUsageSchema = z.object({
   rows: z.array(adminInviteUsageRowSchema).default([]),
 });
 
@@ -56,7 +56,7 @@ const adminAlertSchema = z.object({
   resolved_at: z.string().nullable().optional(),
 });
 
-const adminAlertsSchema = z.object({
+export const adminAlertsSchema = z.object({
   alerts: z.array(adminAlertSchema).default([]),
 });
 
@@ -68,7 +68,7 @@ const adminQuotaUserRowSchema = z.object({
   summary: quotaSummarySchema,
 });
 
-const adminQuotaUsersSchema = z.object({
+export const adminQuotaUsersSchema = z.object({
   rows: z.array(adminQuotaUserRowSchema).default([]),
 });
 

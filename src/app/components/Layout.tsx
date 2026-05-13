@@ -41,7 +41,7 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { to: '/', label: '概览', icon: Home, exact: true },
+  { to: '/', label: '概览', icon: Home, subtitle: 'Overview', exact: true },
   { to: '/foundry', label: '资产区', icon: BookOpen, subtitle: 'The Foundry', exact: false },
   { to: '/lab', label: '实验室', icon: FlaskConical, subtitle: 'The Lab', exact: false },
   { to: '/field', label: '实战仓', icon: Zap, subtitle: 'The Field', exact: false },
@@ -50,12 +50,20 @@ const navItems: NavItem[] = [
     to: '/vocab-review',
     label: '单词卡片',
     icon: BookMarked,
-    subtitle: '全部词卡',
+    subtitle: 'Word Card',
     exact: false,
     badge: s => s.stats.vocabDueCount,
   },
   { to: '/billing', label: 'AI 额度', icon: CreditCard, subtitle: 'Billing', exact: false },
 ];
+
+const adminNavItem: NavItem = {
+  to: '/admin',
+  label: '管理后台',
+  icon: Ticket,
+  subtitle: 'Admin',
+  exact: false,
+};
 
 export function Layout() {
   return (
@@ -115,9 +123,10 @@ function LayoutInner() {
   const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || '用户';
   const userEmail = user?.email || '';
   const canManageInvites = isInviteAdminEmail(user?.email);
+  const visibleNavItems = canManageInvites ? [...navItems, adminNavItem] : navItems;
 
   const progressLinkClass = (isActive: boolean) =>
-    `flex flex-col items-center justify-center rounded-lg p-2.5 text-center transition-all border ${
+    `flex items-center gap-3 rounded-xl p-3 transition-all border ${
       isActive
         ? 'bg-indigo-600/25 border-indigo-500/40 text-white ring-1 ring-indigo-400/30'
         : 'bg-slate-800 border-slate-700/80 text-slate-300 hover:bg-slate-700/60 hover:border-slate-600'
@@ -179,7 +188,7 @@ function LayoutInner() {
         {/* 主导航：可滚动 */}
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-1">
           <nav className="space-y-1">
-            {navItems.map(item => {
+            {visibleNavItems.map(item => {
               const Icon = item.icon;
               const isActive = item.exact
                 ? location.pathname === item.to
@@ -197,12 +206,25 @@ function LayoutInner() {
                   }`}
                 >
                   <Icon size={18} className="shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium">{item.label}</div>
+                  <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
+                    <div className="text-sm font-medium shrink-0">{item.label}</div>
                     {item.subtitle && (
-                      <div className={`text-xs ${isActive ? 'text-indigo-200' : 'text-slate-500 group-hover:text-slate-400'}`}>
-                        {item.subtitle}
-                      </div>
+                      <>
+                        <span
+                          className={`text-xs shrink-0 ${
+                            isActive ? 'text-indigo-200/80' : 'text-slate-600 group-hover:text-slate-400'
+                          }`}
+                        >
+                          |
+                        </span>
+                        <div
+                          className={`text-xs truncate ${
+                          isActive ? 'text-indigo-200' : 'text-slate-500 group-hover:text-slate-400'
+                          }`}
+                        >
+                          {item.subtitle}
+                        </div>
+                      </>
                     )}
                   </div>
                   {n > 0 && (
@@ -230,37 +252,41 @@ function LayoutInner() {
                 )
               }
             >
-              <BookMarked size={14} className="text-violet-400 mb-0.5 opacity-90" />
-              <div className="text-violet-400 font-bold text-lg leading-tight">{store.stats.vocabCardCount}</div>
-              <div className="text-slate-500 text-[11px] leading-tight mt-0.5">词卡</div>
+              <BookMarked size={16} className="text-violet-400 opacity-90 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-slate-500 text-[11px] leading-tight">词卡</div>
+                <div className="text-violet-400 font-bold text-lg leading-tight mt-0.5">
+                  {store.stats.vocabCardCount}
+                </div>
+              </div>
             </NavLink>
             <NavLink to="/corpus" className={({ isActive }) => progressLinkClass(isActive)}>
-              <Library size={14} className="text-emerald-400 mb-0.5 opacity-90" />
-              <div className="text-emerald-400 font-bold text-lg leading-tight">{store.stats.corpusSize}</div>
-              <div className="text-slate-500 text-[11px] leading-tight mt-0.5">语料库</div>
+              <Library size={16} className="text-emerald-400 opacity-90 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-slate-500 text-[11px] leading-tight">语料库</div>
+                <div className="text-emerald-400 font-bold text-lg leading-tight mt-0.5">
+                  {store.stats.corpusSize}
+                </div>
+              </div>
             </NavLink>
             <NavLink to="/errors" className={({ isActive }) => progressLinkClass(isActive)}>
-              <AlertCircle size={14} className="text-red-400 mb-0.5 opacity-90" />
-              <div className="text-red-400 font-bold text-lg leading-tight">{store.stats.errorCount}</div>
-              <div className="text-slate-500 text-[11px] leading-tight mt-0.5">错题</div>
+              <AlertCircle size={16} className="text-red-400 opacity-90 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-slate-500 text-[11px] leading-tight">错题</div>
+                <div className="text-red-400 font-bold text-lg leading-tight mt-0.5">
+                  {store.stats.errorCount}
+                </div>
+              </div>
             </NavLink>
             <NavLink to="/stuck" className={({ isActive }) => progressLinkClass(isActive)}>
-              <LifeBuoy size={14} className="text-amber-400 mb-0.5 opacity-90" />
-              <div className="text-amber-400 font-bold text-lg leading-tight">{store.stats.stuckCount}</div>
-              <div className="text-slate-500 text-[11px] leading-tight mt-0.5">卡壳点</div>
+              <LifeBuoy size={16} className="text-amber-400 opacity-90 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-slate-500 text-[11px] leading-tight">卡壳点</div>
+                <div className="text-amber-400 font-bold text-lg leading-tight mt-0.5">
+                  {store.stats.stuckCount}
+                </div>
+              </div>
             </NavLink>
-          </div>
-          <div className="mt-2">
-            <div className="flex justify-between text-xs text-slate-500 mb-1">
-              <span>总进度</span>
-              <span>{store.stats.totalLearned}/200</span>
-            </div>
-            <div className="w-full bg-slate-700 rounded-full h-1.5">
-              <div
-                className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(100, (store.stats.totalLearned / 200) * 100)}%` }}
-              />
-            </div>
           </div>
         </div>
 
