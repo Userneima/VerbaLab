@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { NavLink, Outlet, useLocation } from 'react-router';
 import {
   BookOpen,
   FlaskConical,
@@ -18,12 +18,25 @@ import {
   BookMarked,
   Ticket,
   CreditCard,
+  Keyboard,
+  RotateCcw,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppStore } from '../store/useStore';
 import { useStore, StoreProvider } from '../store/StoreContext';
 import { AuthProvider, useAuth } from '../store/AuthContext';
 import { isInviteAdminEmail } from '../utils/inviteAdmin';
+import {
+  DEFAULT_VOCAB_REVIEW_SHORTCUTS,
+  getShortcutLabel,
+  loadVocabReviewShortcuts,
+  normalizeShortcutKeyFromEvent,
+  saveVocabReviewShortcuts,
+  setVocabReviewShortcut,
+  type VocabReviewShortcutAction,
+  type VocabReviewShortcuts,
+  VOCAB_REVIEW_SHORTCUTS_CHANGED_EVENT,
+} from '../utils/vocabReviewShortcuts';
 import { AuthPage } from '../pages/AuthPage';
 import { Suspense, useState, useEffect, useRef } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -62,6 +75,12 @@ const adminNavItem: NavItem = {
   exact: false,
 };
 
+const vocabReviewShortcutOptions: Array<{ action: VocabReviewShortcutAction; label: string }> = [
+  { action: 'viewed', label: '已浏览' },
+  { action: 'remembered', label: '记住了' },
+  { action: 'struggled', label: '还不熟' },
+];
+
 export function Layout() {
   return (
     <AuthProvider>
@@ -95,11 +114,15 @@ function AuthGate() {
 
 function LayoutInner() {
   const location = useLocation();
-  const navigate = useNavigate();
   const store = useStore();
   const { user, signOut } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [vocabReviewShortcuts, setVocabReviewShortcuts] = useState<VocabReviewShortcuts>(() =>
+    loadVocabReviewShortcuts(),
+  );
+  const [listeningShortcutAction, setListeningShortcutAction] =
+    useState<VocabReviewShortcutAction | null>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -116,6 +139,64 @@ function LayoutInner() {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [showUserMenu]);
+
+  useEffect(() => {
+    const refresh = () => setVocabReviewShortcuts(loadVocabReviewShortcuts());
+    const onChanged = (event: Event) => {
+      const detail = (event as CustomEvent<VocabReviewShortcuts>).detail;
+      setVocabReviewShortcuts(detail ?? loadVocabReviewShortcuts());
+    };
+
+    window.addEventListener('storage', refresh);
+    window.addEventListener(VOCAB_REVIEW_SHORTCUTS_CHANGED_EVENT, onChanged);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener(VOCAB_REVIEW_SHORTCUTS_CHANGED_EVENT, onChanged);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showUserMenu) setListeningShortcutAction(null);
+  }, [showUserMenu]);
+
+  useEffect(() => {
+    if (!listeningShortcutAction) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setListeningShortcutAction(null);
+        return;
+      }
+
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        event.preventDefault();
+        setVocabReviewShortcuts(prev => {
+          const next = saveVocabReviewShortcuts(
+            setVocabReviewShortcut(prev, listeningShortcutAction, null),
+          );
+          return next;
+        });
+        setListeningShortcutAction(null);
+        return;
+      }
+
+      const key = normalizeShortcutKeyFromEvent(event);
+      if (!key) return;
+
+      event.preventDefault();
+      setVocabReviewShortcuts(prev => {
+        const next = saveVocabReviewShortcuts(
+          setVocabReviewShortcut(prev, listeningShortcutAction, key),
+        );
+        return next;
+      });
+      setListeningShortcutAction(null);
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [listeningShortcutAction]);
 
   const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || '用户';
   const userEmail = user?.email || '';
@@ -268,25 +349,25 @@ function LayoutInner() {
                 )
               }
             >
-              <div className="text-slate-400 text-[11px] leading-none">词卡</div>
+              <div className="text-slate-300 text-[13px] font-medium leading-none">词卡</div>
               <div className="text-violet-400 font-bold text-lg leading-none">
                 {store.stats.vocabCardCount}
               </div>
             </NavLink>
             <NavLink to="/corpus" className={({ isActive }) => progressLinkClass(isActive)}>
-              <div className="text-slate-400 text-[11px] leading-none">语料库</div>
+              <div className="text-slate-300 text-[13px] font-medium leading-none">语料库</div>
               <div className="text-emerald-400 font-bold text-lg leading-none">
                 {store.stats.corpusSize}
               </div>
             </NavLink>
             <NavLink to="/errors" className={({ isActive }) => progressLinkClass(isActive)}>
-              <div className="text-slate-400 text-[11px] leading-none">错题</div>
+              <div className="text-slate-300 text-[13px] font-medium leading-none">错题</div>
               <div className="text-red-400 font-bold text-lg leading-none">
                 {store.stats.errorCount}
               </div>
             </NavLink>
             <NavLink to="/stuck" className={({ isActive }) => progressLinkClass(isActive)}>
-              <div className="text-slate-400 text-[11px] leading-none">卡壳点</div>
+              <div className="text-slate-300 text-[13px] font-medium leading-none">卡壳点</div>
               <div className="text-amber-400 font-bold text-lg leading-none">
                 {store.stats.stuckCount}
               </div>
@@ -373,30 +454,52 @@ function LayoutInner() {
                     </p>
                   )}
                 </div>
-                {canManageInvites && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowUserMenu(false);
-                      navigate('/admin');
-                    }}
-                    className="w-full flex items-center gap-2 px-4 py-3 text-slate-200 hover:bg-slate-700/80 transition-colors text-sm border-b border-slate-700"
-                  >
-                    <Ticket size={15} className="text-amber-400" />
-                    管理员后台
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowUserMenu(false);
-                    navigate('/billing');
-                  }}
-                  className="w-full flex items-center gap-2 px-4 py-3 text-slate-200 hover:bg-slate-700/80 transition-colors text-sm border-b border-slate-700"
-                >
-                  <CreditCard size={15} className="text-emerald-400" />
-                  AI 生成次数
-                </button>
+                <div className="p-3 border-b border-slate-700" data-vocab-shortcut-settings>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2 text-slate-200 text-sm font-medium">
+                      <Keyboard size={16} className="text-violet-400 shrink-0" />
+                      词卡复习快捷键
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = saveVocabReviewShortcuts(DEFAULT_VOCAB_REVIEW_SHORTCUTS);
+                        setVocabReviewShortcuts(next);
+                        setListeningShortcutAction(null);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2 py-1 text-[11px] font-medium text-slate-300 transition-colors hover:bg-slate-700"
+                    >
+                      <RotateCcw size={12} />
+                      默认
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {vocabReviewShortcutOptions.map(option => {
+                      const isListening = listeningShortcutAction === option.action;
+                      const shortcut = vocabReviewShortcuts[option.action];
+                      return (
+                        <button
+                          key={option.action}
+                          type="button"
+                          onClick={() => setListeningShortcutAction(option.action)}
+                          className={`rounded-lg border px-2 py-2 text-left transition-colors ${
+                            isListening
+                              ? 'border-violet-400 bg-violet-500/15 text-violet-100'
+                              : 'border-slate-700 bg-slate-900/30 text-slate-300 hover:bg-slate-700/70'
+                          }`}
+                        >
+                          <span className="block text-[11px] text-slate-400">{option.label}</span>
+                          <span className="mt-1 block truncate text-sm font-semibold">
+                            {isListening ? '按键...' : getShortcutLabel(shortcut)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                    点击后按新键；Delete 可清空，Esc 取消。
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={async () => {
