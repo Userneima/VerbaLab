@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from 'react-router';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import {
   BookOpen,
   FlaskConical,
@@ -8,9 +8,6 @@ import {
   CloudOff,
   Loader2,
   CheckCircle2,
-  ArrowUpCircle,
-  ArrowDownCircle,
-  LogOut,
   User,
   Menu,
   X,
@@ -18,27 +15,14 @@ import {
   BookMarked,
   Ticket,
   CreditCard,
-  Keyboard,
-  RotateCcw,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppStore } from '../store/useStore';
 import { useStore, StoreProvider } from '../store/StoreContext';
 import { AuthProvider, useAuth } from '../store/AuthContext';
 import { isInviteAdminEmail } from '../utils/inviteAdmin';
-import {
-  DEFAULT_VOCAB_REVIEW_SHORTCUTS,
-  getShortcutLabel,
-  loadVocabReviewShortcuts,
-  normalizeShortcutKeyFromEvent,
-  saveVocabReviewShortcuts,
-  setVocabReviewShortcut,
-  type VocabReviewShortcutAction,
-  type VocabReviewShortcuts,
-  VOCAB_REVIEW_SHORTCUTS_CHANGED_EVENT,
-} from '../utils/vocabReviewShortcuts';
 import { AuthPage } from '../pages/AuthPage';
-import { Suspense, useState, useEffect, useRef } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
 
 type NavItem = {
@@ -75,12 +59,6 @@ const adminNavItem: NavItem = {
   exact: false,
 };
 
-const vocabReviewShortcutOptions: Array<{ action: VocabReviewShortcutAction; label: string }> = [
-  { action: 'viewed', label: '已浏览' },
-  { action: 'remembered', label: '记住了' },
-  { action: 'struggled', label: '还不熟' },
-];
-
 export function Layout() {
   return (
     <AuthProvider>
@@ -114,89 +92,14 @@ function AuthGate() {
 
 function LayoutInner() {
   const location = useLocation();
+  const navigate = useNavigate();
   const store = useStore();
-  const { user, signOut } = useAuth();
-  const [showUserMenu, setShowUserMenu] = useState(false);
+  const { user } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [vocabReviewShortcuts, setVocabReviewShortcuts] = useState<VocabReviewShortcuts>(() =>
-    loadVocabReviewShortcuts(),
-  );
-  const [listeningShortcutAction, setListeningShortcutAction] =
-    useState<VocabReviewShortcutAction | null>(null);
-  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (!showUserMenu) return;
-    const close = (e: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setShowUserMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [showUserMenu]);
-
-  useEffect(() => {
-    const refresh = () => setVocabReviewShortcuts(loadVocabReviewShortcuts());
-    const onChanged = (event: Event) => {
-      const detail = (event as CustomEvent<VocabReviewShortcuts>).detail;
-      setVocabReviewShortcuts(detail ?? loadVocabReviewShortcuts());
-    };
-
-    window.addEventListener('storage', refresh);
-    window.addEventListener(VOCAB_REVIEW_SHORTCUTS_CHANGED_EVENT, onChanged);
-    return () => {
-      window.removeEventListener('storage', refresh);
-      window.removeEventListener(VOCAB_REVIEW_SHORTCUTS_CHANGED_EVENT, onChanged);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!showUserMenu) setListeningShortcutAction(null);
-  }, [showUserMenu]);
-
-  useEffect(() => {
-    if (!listeningShortcutAction) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setListeningShortcutAction(null);
-        return;
-      }
-
-      if (event.key === 'Backspace' || event.key === 'Delete') {
-        event.preventDefault();
-        setVocabReviewShortcuts(prev => {
-          const next = saveVocabReviewShortcuts(
-            setVocabReviewShortcut(prev, listeningShortcutAction, null),
-          );
-          return next;
-        });
-        setListeningShortcutAction(null);
-        return;
-      }
-
-      const key = normalizeShortcutKeyFromEvent(event);
-      if (!key) return;
-
-      event.preventDefault();
-      setVocabReviewShortcuts(prev => {
-        const next = saveVocabReviewShortcuts(
-          setVocabReviewShortcut(prev, listeningShortcutAction, key),
-        );
-        return next;
-      });
-      setListeningShortcutAction(null);
-    };
-
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [listeningShortcutAction]);
 
   const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || '用户';
   const userEmail = user?.email || '';
@@ -375,145 +278,33 @@ function LayoutInner() {
           </div>
         </div>
 
-        {/* User info — 固定在侧栏底部 */}
+        {/* User info — 固定在侧栏底部；点击头像进入设置页 */}
         <div className="px-4 pb-safe md:pb-4 border-t border-slate-700 pt-3 shrink-0 bg-[#0f172a]">
-          <div className="relative" ref={userMenuRef}>
-            <button
-              type="button"
-              onClick={() => setShowUserMenu(!showUserMenu)}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition-all text-left"
-              aria-expanded={showUserMenu}
-              aria-haspopup="true"
-            >
-              <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center shrink-0">
-                <User size={14} className="text-white" />
-              </div>
-              <div className="flex-1 text-left min-w-0">
-                <div className="text-sm font-medium truncate">{userName}</div>
-                <div className="text-xs text-slate-500 truncate">{userEmail}</div>
-              </div>
-              <div className="shrink-0 flex items-center gap-1.5 text-slate-500">
-                {store.syncStatus === 'saving' || store.syncStatus === 'loading' ? (
-                  <Loader2 size={14} className="animate-spin text-indigo-400" aria-hidden />
-                ) : store.syncStatus === 'success' ? (
-                  <CheckCircle2 size={14} className="text-emerald-400" aria-hidden />
-                ) : store.syncStatus === 'error' ? (
-                  <CloudOff size={14} className="text-red-400" aria-hidden />
-                ) : (
-                  <Cloud size={14} aria-hidden />
-                )}
-              </div>
-            </button>
-
-            {showUserMenu && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden z-[60] max-h-[min(70vh,26rem)] overflow-y-auto">
-                <div className="p-3 border-b border-slate-700">
-                  <div className="flex items-center gap-2 text-slate-200 text-sm font-medium mb-3">
-                    <Cloud size={16} className="text-indigo-400 shrink-0" />
-                    云同步
-                  </div>
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="text-xs text-slate-500 leading-snug">自动同步（数据变更后约 3 秒）</div>
-                    <button
-                      type="button"
-                      onClick={() => store.setAutoSyncEnabled(!store.autoSyncEnabled)}
-                      className={`text-xs px-2 py-1 rounded-md border transition-colors shrink-0 ${
-                        store.autoSyncEnabled
-                          ? 'bg-emerald-600/20 border-emerald-700 text-emerald-300 hover:bg-emerald-600/30'
-                          : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
-                      }`}
-                      title={store.autoSyncEnabled ? '点击关闭自动同步' : '点击开启自动同步'}
-                    >
-                      {store.autoSyncEnabled ? '已开启' : '已关闭'}
-                    </button>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={store.pushToCloud}
-                      disabled={store.syncStatus === 'saving' || store.syncStatus === 'loading'}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50"
-                    >
-                      <ArrowUpCircle size={13} />
-                      手动上传
-                    </button>
-                    <button
-                      type="button"
-                      onClick={store.pullFromCloud}
-                      disabled={store.syncStatus === 'saving' || store.syncStatus === 'loading'}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 bg-slate-700 text-slate-200 rounded-lg text-xs font-medium hover:bg-slate-600 transition-colors disabled:opacity-50"
-                    >
-                      <ArrowDownCircle size={13} />
-                      从云下载
-                    </button>
-                  </div>
-                  {store.syncError && <p className="text-red-400 text-xs mt-2">{store.syncError}</p>}
-                  {store.lastSyncTime && (
-                    <p className="text-slate-500 text-xs text-center mt-2">
-                      上次同步：{new Date(store.lastSyncTime).toLocaleString('zh-CN')}
-                    </p>
-                  )}
-                </div>
-                <div className="p-3 border-b border-slate-700" data-vocab-shortcut-settings>
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2 text-slate-200 text-sm font-medium">
-                      <Keyboard size={16} className="text-violet-400 shrink-0" />
-                      词卡复习快捷键
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = saveVocabReviewShortcuts(DEFAULT_VOCAB_REVIEW_SHORTCUTS);
-                        setVocabReviewShortcuts(next);
-                        setListeningShortcutAction(null);
-                      }}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2 py-1 text-[11px] font-medium text-slate-300 transition-colors hover:bg-slate-700"
-                    >
-                      <RotateCcw size={12} />
-                      默认
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {vocabReviewShortcutOptions.map(option => {
-                      const isListening = listeningShortcutAction === option.action;
-                      const shortcut = vocabReviewShortcuts[option.action];
-                      return (
-                        <button
-                          key={option.action}
-                          type="button"
-                          onClick={() => setListeningShortcutAction(option.action)}
-                          className={`rounded-lg border px-2 py-2 text-left transition-colors ${
-                            isListening
-                              ? 'border-violet-400 bg-violet-500/15 text-violet-100'
-                              : 'border-slate-700 bg-slate-900/30 text-slate-300 hover:bg-slate-700/70'
-                          }`}
-                        >
-                          <span className="block text-[11px] text-slate-400">{option.label}</span>
-                          <span className="mt-1 block truncate text-sm font-semibold">
-                            {isListening ? '按键...' : getShortcutLabel(shortcut)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                    点击后按新键；Delete 可清空，Esc 取消。
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setShowUserMenu(false);
-                    await signOut();
-                  }}
-                  className="w-full flex items-center gap-2 px-4 py-3 text-red-400 hover:bg-slate-700/80 transition-colors text-sm"
-                >
-                  <LogOut size={15} />
-                  退出登录
-                </button>
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/settings')}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition-all text-left"
+            aria-label="进入设置"
+          >
+            <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center shrink-0">
+              <User size={14} className="text-white" />
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-sm font-medium truncate">{userName}</div>
+              <div className="text-xs text-slate-500 truncate">{userEmail}</div>
+            </div>
+            <div className="shrink-0 flex items-center gap-1.5 text-slate-500">
+              {store.syncStatus === 'saving' || store.syncStatus === 'loading' ? (
+                <Loader2 size={14} className="animate-spin text-indigo-400" aria-hidden />
+              ) : store.syncStatus === 'success' ? (
+                <CheckCircle2 size={14} className="text-emerald-400" aria-hidden />
+              ) : store.syncStatus === 'error' ? (
+                <CloudOff size={14} className="text-red-400" aria-hidden />
+              ) : (
+                <Cloud size={14} aria-hidden />
+              )}
+            </div>
+          </button>
         </div>
       </aside>
 
