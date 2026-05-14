@@ -199,7 +199,7 @@ export function buildVocabCardGenerationPrompt(input: {
     '      "sentence": "English sentence",\n' +
     '      "collocationsUsed": ["phrase from whitelist used in sentence"],\n' +
     '      "chinese": "该句中文释义",\n' +
-    '      "reviewChunks": ["semantic chunk 1", "semantic chunk 2", "semantic chunk 3"]\n' +
+    '      "reviewChunks": ["lexical chunk 1", "lexical chunk 2", "lexical chunk 3"]\n' +
     "    }\n" +
     "  ]\n" +
     "}\n\n" +
@@ -211,10 +211,13 @@ export function buildVocabCardGenerationPrompt(input: {
     "- Do NOT frame as an answer to a test question; standalone real-life lines.\n" +
     "- collocationsUsed must be non-empty for each item; phrases must appear in the sentence naturally.\n" +
     "- reviewChunks is REQUIRED for each item. It is used for a sentence reconstruction review game.\n" +
+    "- Treat reviewChunks as lexical chunks / 语伙: reusable meaning units a learner can say as one piece, not arbitrary balanced word groups.\n" +
     "- reviewChunks must be in the original sentence order. Joining reviewChunks with single spaces must reconstruct the exact sentence, including punctuation.\n" +
-    "- Each review chunk should usually contain 2-5 words. Keep natural phrases, phrasal verbs, collocations, prepositional phrases, and subject+verb units together.\n" +
-    "- Do NOT split into random balanced word groups. Do NOT create awkward chunks like 'ethic because I\\'ve' or 'seen her get'.\n" +
-    "- Avoid one-word chunks unless the sentence is very short or the word is a standalone connector.\n" +
+    "- Prefer 3-6 chunks for an 8-16 word sentence. Each chunk should usually contain 2-5 words; avoid chunks longer than 6 words.\n" +
+    "- Keep fixed expressions, phrasal verbs, collocationsUsed, prepositional phrases, noun phrases, and short subject+verb frames together when possible.\n" +
+    "- Good chunks: [\"I think\", \"you have a point\", \"about the denim jacket\", \"being too casual\", \"for the presentation.\"].\n" +
+    "- Bad chunks: [\"I think you have a\", \"point about the denim jacket\", \"being too casual for the presentation.\"]. This splits the collocation and creates oversized chunks.\n" +
+    "- Do NOT create awkward chunks like 'ethic because I\\'ve' or 'seen her get'. Avoid one-word chunks unless the sentence is very short or the word is a standalone connector.\n" +
     "- Avoid awkward literal translation style.\n" +
     "- Do NOT include questionId or tags.";
 

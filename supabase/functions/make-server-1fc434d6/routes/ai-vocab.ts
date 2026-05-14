@@ -69,14 +69,18 @@ export function registerVocabAiRoutes(app: Hono) {
 
       const rawItems = parsed.items || [];
 
-      const mapItem = (it: any) => ({
-        sentence: String(it?.sentence || "").trim(),
-        collocationsUsed: Array.isArray(it?.collocationsUsed)
-          ? it.collocationsUsed.map((x: any) => String(x))
-          : [],
-        chinese: String(it?.chinese || "").trim() || undefined,
-        reviewChunks: normalizeReviewChunks(it?.reviewChunks, String(it?.sentence || "").trim()),
-      });
+      const mapItem = (it: any) => {
+        const sentence = String(it?.sentence || "").trim();
+        const collocationsUsed = Array.isArray(it?.collocationsUsed)
+          ? it.collocationsUsed.map((x: any) => String(x).trim()).filter(Boolean)
+          : [];
+        return {
+          sentence,
+          collocationsUsed,
+          chinese: String(it?.chinese || "").trim() || undefined,
+          reviewChunks: normalizeReviewChunks(it?.reviewChunks, sentence, collocationsUsed),
+        };
+      };
 
       const first = rawItems.find((it: any) => it && String(it.sentence || "").trim());
       if (!first) return c.json({ error: "AI returned no valid items" }, 500);

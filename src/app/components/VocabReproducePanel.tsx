@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import {
   buildShuffledChunkTilePool,
+  buildSentenceReviewChunkTiles,
   type SentenceTile,
   type SentenceTileDifficulty,
   tokenizeSentenceToTiles,
-  tokenizeSentenceToChunkedTiles,
   verifyReconstructedSentence,
 } from '../utils/sentenceTileBank';
 
@@ -19,6 +19,7 @@ type Props = {
   onComplete: () => void;
   alreadyPassed: boolean;
   difficulty?: SentenceTileDifficulty;
+  reviewChunks?: string[];
 };
 
 export function VocabReproducePanel({
@@ -28,13 +29,18 @@ export function VocabReproducePanel({
   onComplete,
   alreadyPassed,
   difficulty = 'phrase',
+  reviewChunks,
 }: Props) {
   const sessionKey = `${referenceSentence}\0${targetCollocation}`;
 
   const wordTiles = useMemo(() => tokenizeSentenceToTiles(referenceSentence), [referenceSentence]);
+  const protectedPhrases = useMemo(
+    () => (targetCollocation?.trim() ? [targetCollocation.trim()] : []),
+    [targetCollocation],
+  );
   const phraseTiles = useMemo(
-    () => tokenizeSentenceToChunkedTiles(referenceSentence),
-    [referenceSentence],
+    () => buildSentenceReviewChunkTiles(referenceSentence, { reviewChunks, protectedPhrases }),
+    [protectedPhrases, referenceSentence, reviewChunks],
   );
   const refTiles = difficulty === 'word' ? wordTiles : phraseTiles;
 
@@ -47,12 +53,12 @@ export function VocabReproducePanel({
     setPool(
       difficulty === 'word'
         ? [...wordTiles].sort(() => Math.random() - 0.5)
-        : buildShuffledChunkTilePool(referenceSentence),
+        : buildShuffledChunkTilePool(referenceSentence, { reviewChunks, protectedPhrases }),
     );
     setSelected([]);
     setError(null);
     setDone(false);
-  }, [difficulty, referenceSentence, wordTiles]);
+  }, [difficulty, protectedPhrases, referenceSentence, reviewChunks, wordTiles]);
 
   useEffect(() => {
     if (alreadyPassed) return;

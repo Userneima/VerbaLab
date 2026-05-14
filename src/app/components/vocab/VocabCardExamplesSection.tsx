@@ -244,6 +244,7 @@ export function VocabCardExamplesSection({
                           referenceSentence={item.sentence}
                           targetCollocation={targetPhraseForItem(item)}
                           cueZh={item.chinese}
+                          reviewChunks={item.reviewChunks}
                           alreadyPassed={passedReproItemIds.has(item.id)}
                           onComplete={() => onCompleteRepro(item.id)}
                         />

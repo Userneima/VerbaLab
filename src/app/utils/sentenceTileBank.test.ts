@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildSentenceReviewChunkTiles,
   buildShuffledChunkTilePool,
+  normalizeSentenceReviewChunks,
   sentenceSupportsWordDifficultyUpgrade,
   tokenizeSentenceToChunkedTiles,
   tokenizeSentenceToTiles,
@@ -45,6 +47,51 @@ describe('sentenceTileBank chunked helpers', () => {
 
     expect(shuffled).toHaveLength(chunkTiles.length);
     expect(shuffled.map(tile => tile.text).sort()).toEqual(chunkTiles.map(tile => tile.text).sort());
+  });
+
+  it('uses AI-provided lexical chunks when they reconstruct the sentence exactly', () => {
+    const sentence =
+      'I think you have a point about the denim jacket being too casual for the presentation.';
+    const reviewChunks = [
+      'I think',
+      'you have a point',
+      'about the denim jacket',
+      'being too casual',
+      'for the presentation.',
+    ];
+
+    const tiles = buildSentenceReviewChunkTiles(sentence, {
+      reviewChunks,
+      protectedPhrases: ['have a point'],
+    });
+
+    expect(tiles.map((tile) => tile.text)).toEqual(reviewChunks);
+    expect(verifyReconstructedSentence(tiles, sentence)).toBe(true);
+  });
+
+  it('rejects AI chunks that split a protected collocation', () => {
+    const sentence = 'I think you have a point about this.';
+
+    expect(
+      normalizeSentenceReviewChunks(
+        sentence,
+        ['I think you have a', 'point about this.'],
+        ['have a point'],
+      ),
+    ).toBeNull();
+  });
+
+  it('rejects oversized AI chunks so the UI can fall back to local chunking', () => {
+    const sentence =
+      'I think you have a point about the denim jacket being too casual for the presentation.';
+
+    expect(
+      normalizeSentenceReviewChunks(
+        sentence,
+        ['I think you have a point about the denim jacket', 'being too casual for the presentation.'],
+        ['have a point'],
+      ),
+    ).toBeNull();
   });
 
   it('reports whether a sentence can be upgraded to word difficulty', () => {

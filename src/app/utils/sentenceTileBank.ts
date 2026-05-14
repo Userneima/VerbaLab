@@ -3,6 +3,10 @@ import { normalizeForMatch } from './reviewGate';
 
 export type SentenceTile = { id: string; text: string };
 export type SentenceTileDifficulty = 'phrase' | 'word';
+export type ReviewChunkOptions = {
+  reviewChunks?: string[];
+  protectedPhrases?: string[];
+};
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -95,6 +99,81 @@ export function tokenizeSentenceToChunkedTiles(sentence: string): SentenceTile[]
   return tiles;
 }
 
+function normalizeSpaces(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function countWords(text: string): number {
+  return normalizeSpaces(text).split(/\s+/).filter(Boolean).length;
+}
+
+function normalizePhraseForSearch(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9']+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function phraseIsProtectedByChunk(chunks: string[], phrase: string): boolean {
+  const normalizedPhrase = normalizePhraseForSearch(phrase);
+  if (!normalizedPhrase || countWords(normalizedPhrase) < 2 || countWords(normalizedPhrase) > 6) {
+    return true;
+  }
+  return chunks.some((chunk) => normalizePhraseForSearch(chunk).includes(normalizedPhrase));
+}
+
+export function normalizeSentenceReviewChunks(
+  sentence: string,
+  reviewChunks?: string[],
+  protectedPhrases: string[] = [],
+): string[] | null {
+  const normalizedSentence = normalizeSpaces(sentence);
+  if (!normalizedSentence || !Array.isArray(reviewChunks)) return null;
+
+  const chunks = reviewChunks
+    .map((chunk) => normalizeSpaces(String(chunk || '')))
+    .filter(Boolean);
+
+  if (chunks.length < 2) return null;
+  if (chunks.join(' ') !== normalizedSentence) return null;
+
+  const sentenceWordCount = countWords(normalizedSentence);
+  const chunkWordCounts = chunks.map(countWords);
+  const oneWordChunks = chunkWordCounts.filter((n) => n <= 1).length;
+  const maxChunkWords = Math.max(...chunkWordCounts);
+
+  if (sentenceWordCount >= 9 && chunks.length < 3) return null;
+  if (maxChunkWords > 6) return null;
+  if (sentenceWordCount >= 9 && oneWordChunks > Math.max(1, Math.floor(chunks.length / 2))) {
+    return null;
+  }
+
+  const searchableSentence = normalizePhraseForSearch(normalizedSentence);
+  for (const phrase of protectedPhrases) {
+    const normalizedPhrase = normalizePhraseForSearch(phrase);
+    if (!normalizedPhrase || !searchableSentence.includes(normalizedPhrase)) continue;
+    if (!phraseIsProtectedByChunk(chunks, phrase)) return null;
+  }
+
+  return chunks;
+}
+
+export function buildSentenceReviewChunkTiles(
+  sentence: string,
+  options: ReviewChunkOptions = {},
+): SentenceTile[] {
+  const chunks = normalizeSentenceReviewChunks(
+    sentence,
+    options.reviewChunks,
+    options.protectedPhrases,
+  );
+  if (chunks) {
+    return chunks.map((text, i) => ({ id: `r${i}`, text }));
+  }
+  return tokenizeSentenceToChunkedTiles(sentence);
+}
+
 function wordKey(w: string): string {
   return w.replace(/[^a-zA-Z0-9']/g, '').toLowerCase();
 }
@@ -158,8 +237,11 @@ export function buildShuffledTilePool(referenceSentence: string, distractorCount
   return shuffle([...refTiles, ...distractorTiles]);
 }
 
-export function buildShuffledChunkTilePool(referenceSentence: string): SentenceTile[] {
-  return shuffle(tokenizeSentenceToChunkedTiles(referenceSentence));
+export function buildShuffledChunkTilePool(
+  referenceSentence: string,
+  options: ReviewChunkOptions = {},
+): SentenceTile[] {
+  return shuffle(buildSentenceReviewChunkTiles(referenceSentence, options));
 }
 
 export function sentenceSupportsWordDifficultyUpgrade(referenceSentence: string): boolean {

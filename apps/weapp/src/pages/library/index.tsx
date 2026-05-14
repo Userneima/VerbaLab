@@ -38,6 +38,55 @@ function normalizeSentence(value: string): string {
     .trim();
 }
 
+function normalizeSpaces(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function countWords(value: string): number {
+  return normalizeSpaces(value).split(/\s+/).filter(Boolean).length;
+}
+
+function normalizePhraseForSearch(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9']+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeReviewChunks(
+  sentence: string,
+  reviewChunks?: string[],
+  protectedPhrases: string[] = [],
+): string[] | null {
+  const normalizedSentence = normalizeSpaces(sentence);
+  if (!normalizedSentence || !Array.isArray(reviewChunks)) return null;
+
+  const chunks = reviewChunks.map((chunk) => normalizeSpaces(chunk || '')).filter(Boolean);
+  if (chunks.length < 2) return null;
+  if (chunks.join(' ') !== normalizedSentence) return null;
+
+  const sentenceWordCount = countWords(normalizedSentence);
+  const chunkWordCounts = chunks.map(countWords);
+  const oneWordChunks = chunkWordCounts.filter((n) => n <= 1).length;
+  const maxChunkWords = Math.max(...chunkWordCounts);
+
+  if (sentenceWordCount >= 9 && chunks.length < 3) return null;
+  if (maxChunkWords > 6) return null;
+  if (sentenceWordCount >= 9 && oneWordChunks > Math.max(1, Math.floor(chunks.length / 2))) return null;
+
+  const searchableSentence = normalizePhraseForSearch(normalizedSentence);
+  for (const phrase of protectedPhrases) {
+    const normalizedPhrase = normalizePhraseForSearch(phrase);
+    if (!normalizedPhrase || countWords(normalizedPhrase) < 2 || countWords(normalizedPhrase) > 6) continue;
+    if (!searchableSentence.includes(normalizedPhrase)) continue;
+    const keptInsideOneChunk = chunks.some((chunk) => normalizePhraseForSearch(chunk).includes(normalizedPhrase));
+    if (!keptInsideOneChunk) return null;
+  }
+
+  return chunks;
+}
+
 function shuffleTiles(tiles: SentenceTile[]): SentenceTile[] {
   const next = [...tiles];
   for (let i = next.length - 1; i > 0; i -= 1) {
@@ -162,11 +211,9 @@ function splitSentenceIntoTiles(sentence: string): SentenceTile[] {
 
 function getReviewTiles(item?: VocabCardItem): SentenceTile[] {
   const sentence = item?.sentence?.trim() || '';
-  const chunks = Array.isArray(item?.reviewChunks)
-    ? item.reviewChunks.map((chunk) => chunk.trim()).filter(Boolean)
-    : [];
+  const chunks = normalizeReviewChunks(sentence, item?.reviewChunks, item?.collocationsUsed || []);
 
-  if (sentence && chunks.length >= 2 && normalizeSentence(chunks.join(' ')) === normalizeSentence(sentence)) {
+  if (chunks) {
     return chunks.map((chunk, index) => ({ id: `tile-${index}`, text: chunk }));
   }
 

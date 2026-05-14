@@ -5,17 +5,64 @@ import { buildRegisterAnalysisExample } from "./prompts.ts";
 
 export type DeepSeekCaller = typeof callDeepSeek;
 
-export function normalizeReviewChunks(raw: unknown, sentence: string): string[] | undefined {
-  const normalizedSentence = sentence.replace(/\s+/g, " ").trim();
+function normalizeSpaces(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function countWords(text: string): number {
+  return normalizeSpaces(text).split(/\s+/).filter(Boolean).length;
+}
+
+function normalizePhraseForSearch(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9']+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function phraseIsKeptInsideOneChunk(chunks: string[], phrase: string): boolean {
+  const normalizedPhrase = normalizePhraseForSearch(phrase);
+  if (!normalizedPhrase || countWords(normalizedPhrase) < 2 || countWords(normalizedPhrase) > 6) {
+    return true;
+  }
+  return chunks.some((chunk) => normalizePhraseForSearch(chunk).includes(normalizedPhrase));
+}
+
+export function normalizeReviewChunks(
+  raw: unknown,
+  sentence: string,
+  protectedPhrases: string[] = [],
+): string[] | undefined {
+  const normalizedSentence = normalizeSpaces(sentence);
   if (!normalizedSentence || !Array.isArray(raw)) return undefined;
 
   const chunks = raw
-    .map((item) => String(item || "").replace(/\s+/g, " ").trim())
+    .map((item) => normalizeSpaces(String(item || "")))
     .filter(Boolean);
 
   if (chunks.length < 2) return undefined;
-  const reconstructed = chunks.join(" ").replace(/\s+/g, " ").trim();
+  const reconstructed = normalizeSpaces(chunks.join(" "));
   if (reconstructed !== normalizedSentence) return undefined;
+
+  const sentenceWordCount = countWords(normalizedSentence);
+  const chunkWordCounts = chunks.map(countWords);
+  const oneWordChunks = chunkWordCounts.filter((n) => n <= 1).length;
+  const maxChunkWords = Math.max(...chunkWordCounts);
+
+  if (sentenceWordCount >= 9 && chunks.length < 3) return undefined;
+  if (maxChunkWords > 6) return undefined;
+  if (sentenceWordCount >= 9 && oneWordChunks > Math.max(1, Math.floor(chunks.length / 2))) {
+    return undefined;
+  }
+
+  const searchableSentence = normalizePhraseForSearch(normalizedSentence);
+  for (const phrase of protectedPhrases) {
+    const normalizedPhrase = normalizePhraseForSearch(phrase);
+    if (!normalizedPhrase || !searchableSentence.includes(normalizedPhrase)) continue;
+    if (!phraseIsKeptInsideOneChunk(chunks, phrase)) return undefined;
+  }
+
   return chunks;
 }
 
@@ -414,10 +461,12 @@ export async function generateOriginalDailyFallbackItem(
     '  "sentence": "English sentence",\n' +
     '  "collocationsUsed": ["phrase from whitelist used in sentence"],\n' +
     '  "chinese": "该句中文释义",\n' +
-    '  "reviewChunks": ["semantic chunk 1", "semantic chunk 2", "semantic chunk 3"]\n' +
+    '  "reviewChunks": ["lexical chunk 1", "lexical chunk 2", "lexical chunk 3"]\n' +
     "}\n\n" +
     "Rules: usually 8-16 words; conversational; contractions OK when natural; one clear main clause preferred. " +
-    "reviewChunks is required: use 2-5 word semantic chunks in original order. Joining chunks with single spaces must reconstruct the exact sentence.";
+    "reviewChunks is required: use lexical chunks / 语伙 in original order. Joining chunks with single spaces must reconstruct the exact sentence. " +
+    "A lexical chunk is a reusable meaning unit, not a random balanced word group. Keep collocationsUsed, phrasal verbs, prepositional phrases, noun phrases, and short subject+verb frames together. " +
+    "Prefer 3-6 chunks, usually 2-5 words each, and avoid chunks longer than 6 words.";
 
   const userContent =
     'Learner original wording: "' +
@@ -449,7 +498,7 @@ export async function generateOriginalDailyFallbackItem(
       sentence,
       collocationsUsed,
       chinese: String(parsed?.chinese || "").trim() || undefined,
-      reviewChunks: normalizeReviewChunks(parsed?.reviewChunks, sentence),
+      reviewChunks: normalizeReviewChunks(parsed?.reviewChunks, sentence, collocationsUsed),
     };
   } catch (e) {
     if (isAiUsageBlockedError(e)) throw e;
